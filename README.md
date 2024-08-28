@@ -1,0 +1,1 @@
+# etekcity_fitness_scale_ble
