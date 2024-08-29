@@ -42,9 +42,7 @@ class ScaleDataUpdateCoordinator:
             self._client.display_unit = unit
 
     @callback
-    async def async_start(
-        self, update_callback: Callable[[ScaleData], None]
-    ) -> None:
+    async def async_start(self, update_callback: Callable[[ScaleData], None]) -> None:
         """Start the coordinator and initialize the scale client.
 
         This method sets up the EtekcitySmartFitnessScale client and starts

@@ -66,9 +66,7 @@ async def async_setup_entry(
     )
 
     async_add_entities([entity])
-    _LOGGER.debug(
-        "Scale sensors setup completed for entry: %s", entry.entry_id
-    )
+    _LOGGER.debug("Scale sensors setup completed for entry: %s", entry.entry_id)
 
 
 HW_VERSION_KEY = "hw_version"
@@ -164,9 +162,7 @@ class ScaleSensor(RestoreSensor):
         await super().async_added_to_hass()
 
         if last_state := await self.async_get_last_sensor_data():
-            _LOGGER.debug(
-                "Restoring previous state for sensor: %s", self.entity_id
-            )
+            _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
             self._attr_native_value = last_state.native_value
             self._attr_native_unit_of_measurement = (
                 last_state.native_unit_of_measurement
@@ -246,9 +242,7 @@ class ScaleSensor(RestoreSensor):
         ):
             match data.display_unit:
                 case WeightUnit.KG:
-                    self._sensor_option_unit_of_measurement = (
-                        UnitOfMass.KILOGRAMS
-                    )
+                    self._sensor_option_unit_of_measurement = UnitOfMass.KILOGRAMS
                 case WeightUnit.LB:
                     self._sensor_option_unit_of_measurement = UnitOfMass.POUNDS
                 case WeightUnit.ST:
@@ -305,11 +299,7 @@ class ScaleSensor(RestoreSensor):
         self,
     ) -> ScaleSensorExtraStoredData | None:
         """Restore Scale Sensor Extra Stored Data."""
-        if (
-            restored_last_extra_data := await self.async_get_last_extra_data()
-        ) is None:
+        if (restored_last_extra_data := await self.async_get_last_extra_data()) is None:
             return None
 
-        return ScaleSensorExtraStoredData.from_dict(
-            restored_last_extra_data.as_dict()
-        )
+        return ScaleSensorExtraStoredData.from_dict(restored_last_extra_data.as_dict())
