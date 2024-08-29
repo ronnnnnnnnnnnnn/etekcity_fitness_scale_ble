@@ -1,0 +1,23 @@
+{
+  "domain": "etekcity_fitness_scale_ble",
+  "name": "Etekcity Fitness Scale BLE",
+  "bluetooth": [
+    {
+      "connectable": true,
+      "manufacturer_id": 1744,
+      "local_name": "Etekcity *Fitness *Scale*"
+    }
+  ],
+  "codeowners": [
+    "@ronnnnnnnnnnnnn"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth_adapters"
+  ],
+  "documentation": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
+  "issue_tracker": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "requirements": ["etekcity_esf551_ble==0.1.7"]
+}
