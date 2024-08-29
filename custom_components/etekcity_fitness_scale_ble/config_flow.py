@@ -22,7 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclasses.dataclass(frozen=True)
 class Discovery:
-    """Represents a discovered Bluetooth device.
+    """
+    Represents a discovered Bluetooth device.
 
     Attributes:
         title: The name or title of the discovered device.

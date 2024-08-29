@@ -1,3 +1,5 @@
+"""Coordinator for the etekcity_fitness_scale_ble integration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ScaleDataUpdateCoordinator:
-    """Coordinator to manage data updates for a scale device.
+    """
+    Coordinator to manage data updates for a scale device.
 
     This class handles the communication with the Etekcity Smart Fitness Scale
     and coordinates updates to the Home Assistant entities.
@@ -25,7 +28,8 @@ class ScaleDataUpdateCoordinator:
     _display_unit: WeightUnit = None
 
     def __init__(self, address: str) -> None:
-        """Initialize the ScaleDataUpdateCoordinator.
+        """
+        Initialize the ScaleDataUpdateCoordinator.
 
         Args:
             address (str): The Bluetooth address of the scale.
@@ -43,7 +47,8 @@ class ScaleDataUpdateCoordinator:
 
     @callback
     async def async_start(self, update_callback: Callable[[ScaleData], None]) -> None:
-        """Start the coordinator and initialize the scale client.
+        """
+        Start the coordinator and initialize the scale client.
 
         This method sets up the EtekcitySmartFitnessScale client and starts
         listening for updates from the scale.

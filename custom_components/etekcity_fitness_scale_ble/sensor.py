@@ -1,3 +1,5 @@
+"""Support for Etekcity Fitness Scale BLE sensors."""
+
 from __future__ import annotations
 
 import logging
@@ -132,7 +134,8 @@ class ScaleSensor(RestoreSensor):
         coordinator: ScaleDataUpdateCoordinator,
         entity_description: SensorEntityDescription,
     ) -> None:
-        """Initialize the scale sensor.
+        """
+        Initialize the scale sensor.
 
         Args:
             name: The name of the sensor.
@@ -219,7 +222,8 @@ class ScaleSensor(RestoreSensor):
         self,
         data: ScaleData,
     ) -> None:
-        """Handle updated data from the scale.
+        """
+        Handle updated data from the scale.
 
         This method is called when new data is received from the scale.
         It updates the sensor's state and triggers a state update in HA.
