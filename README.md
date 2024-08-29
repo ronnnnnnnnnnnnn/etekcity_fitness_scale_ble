@@ -17,6 +17,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ### HACS (Recommended)
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ronnnnnnnnnnnnn&repository=etekcity_fitness_scale_ble&category=integration)
+
 1. Ensure that [HACS](https://hacs.xyz/) is installed in your Home Assistant instance.
 2. In the HACS panel, go to "Integrations".
 3. Click the "+" button and search for "Etekcity Fitness Scale BLE".
