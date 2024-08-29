@@ -7,7 +7,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfo,
     async_discovered_service_info,
@@ -94,25 +93,39 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         current_addresses = self._async_current_ids()
         for discovery_info in async_discovered_service_info(self.hass):
             address = discovery_info.address
-            if address in current_addresses or address in self._discovered_devices:
+            if (
+                address in current_addresses
+                or address in self._discovered_devices
+            ):
                 continue
 
             if discovery_info.advertisement.local_name is None:
                 continue
 
-            if not (discovery_info.advertisement.local_name.startswith("Etekcity")):
+            if not (
+                discovery_info.advertisement.local_name.startswith("Etekcity")
+            ):
                 continue
 
             _LOGGER.debug("Found BT Scale")
             _LOGGER.debug("Scale Discovery address: %s", address)
-            _LOGGER.debug("Scale Man Data: %s", discovery_info.manufacturer_data)
-            _LOGGER.debug("Scale advertisement: %s", discovery_info.advertisement)
+            _LOGGER.debug(
+                "Scale Man Data: %s", discovery_info.manufacturer_data
+            )
+            _LOGGER.debug(
+                "Scale advertisement: %s", discovery_info.advertisement
+            )
             _LOGGER.debug("Scale device: %s", discovery_info.device)
-            _LOGGER.debug("Scale service data: %s", discovery_info.service_data)
-            _LOGGER.debug("Scale service uuids: %s", discovery_info.service_uuids)
+            _LOGGER.debug(
+                "Scale service data: %s", discovery_info.service_data
+            )
+            _LOGGER.debug(
+                "Scale service uuids: %s", discovery_info.service_uuids
+            )
             _LOGGER.debug("Scale rssi: %s", discovery_info.rssi)
             _LOGGER.debug(
-                "Scale advertisement: %s", discovery_info.advertisement.local_name
+                "Scale advertisement: %s",
+                discovery_info.advertisement.local_name,
             )
             self._discovered_devices[address] = Discovery(
                 title(discovery_info), discovery_info

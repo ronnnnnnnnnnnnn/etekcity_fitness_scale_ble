@@ -4,8 +4,11 @@ import asyncio
 import logging
 from collections.abc import Callable
 
-from etekcity_esf551_ble import EtekcitySmartFitnessScale, ScaleData, WeightUnit
-
+from etekcity_esf551_ble import (
+    EtekcitySmartFitnessScale,
+    ScaleData,
+    WeightUnit,
+)
 from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,7 +42,9 @@ class ScaleDataUpdateCoordinator:
             self._client.display_unit = unit
 
     @callback
-    async def async_start(self, update_callback: Callable[[ScaleData], None]) -> None:
+    async def async_start(
+        self, update_callback: Callable[[ScaleData], None]
+    ) -> None:
         """Start the coordinator and initialize the scale client.
 
         This method sets up the EtekcitySmartFitnessScale client and starts
