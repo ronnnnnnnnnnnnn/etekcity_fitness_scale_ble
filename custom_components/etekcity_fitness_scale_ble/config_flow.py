@@ -15,8 +15,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigEntry, ConfigFlow
 from homeassistant.const import CONF_ADDRESS, CONF_UNIT_SYSTEM, UnitOfLength, UnitOfMass
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import selector
+from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.util.unit_conversion import DistanceConverter
 
 from .const import (
@@ -167,6 +166,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         Returns:
             tuple: Contains height in (centimeters, feet, inches)
+
         """
         if unit == UnitOfMass.KILOGRAMS:
             centimeters = user_input[CONF_HEIGHT]

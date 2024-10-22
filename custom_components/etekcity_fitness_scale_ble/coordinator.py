@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable
 from datetime import date
+import logging
 
 from etekcity_esf551_ble import (
     EtekcitySmartFitnessScale,

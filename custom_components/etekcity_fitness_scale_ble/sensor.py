@@ -1,8 +1,8 @@
 """Support for Etekcity Fitness Scale BLE sensors."""
 
-import logging
 from dataclasses import dataclass
 from datetime import date
+import logging
 from typing import Any, Self
 
 from etekcity_esf551_ble import IMPEDANCE_KEY, WEIGHT_KEY, Sex, WeightUnit
@@ -162,12 +162,7 @@ async def async_setup_entry(
     coordinator.set_display_unit(
         WeightUnit.KG if display_unit == UnitOfMass.KILOGRAMS else WeightUnit.LB
     )
-    entities = list(
-        map(
-            lambda sensor: _update_unit(sensor, display_unit),
-            entities,
-        )
-    )
+    entities = [_update_unit(sensor, display_unit) for sensor in entities]
     async_add_entities(entities)
     async_update_suggested_units(hass)
     await coordinator.async_start()
@@ -331,11 +326,11 @@ class ScaleWeightSensor(ScaleSensor):
                 or device_entry.sw_version != last_state.sw_version
             ):
                 hw_version = last_state.hw_version
-                if hw_version == None or hw_version == "":
+                if hw_version is None or hw_version == "":
                     hw_version = device_entry.hw_version
 
                 sw_version = last_state.sw_version
-                if sw_version == None or sw_version == "":
+                if sw_version is None or sw_version == "":
                     sw_version = device_entry.sw_version
 
                 device_registry.async_update_device(
@@ -363,11 +358,11 @@ class ScaleWeightSensor(ScaleSensor):
             or device_entry.sw_version != data.sw_version
         ):
             hw_version = data.hw_version
-            if hw_version == None or hw_version == "":
+            if hw_version is None or hw_version == "":
                 hw_version = device_entry.hw_version
 
             sw_version = data.sw_version
-            if sw_version == None or sw_version == "":
+            if sw_version is None or sw_version == "":
                 sw_version = device_entry.sw_version
 
             device_registry.async_update_device(
