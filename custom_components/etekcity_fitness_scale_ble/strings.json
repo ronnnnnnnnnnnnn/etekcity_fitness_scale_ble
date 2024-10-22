@@ -1,15 +1,44 @@
 {
   "config": {
-    "flow_title": "{name}",
+    "flow_title": "{name} ({address})",
     "step": {
       "user": {
         "description": "[%key:component::bluetooth::config::step::user::description%]",
         "data": {
-          "address": "[%key:common::config_flow::data::device%]"
+          "address": "[%key:common::config_flow::data::device%]",
+          "unit_system": "Unit System",
+          "calculate body metrics": "Calculate body composition metrics"
         }
       },
       "bluetooth_confirm": {
-        "description": "[%key:component::bluetooth::config::step::bluetooth_confirm::description%]"
+        "description": "Configure device options",
+        "data": {
+          "unit_system": "Unit System",
+          "calculate body metrics": "Calculate body composition metrics"
+        }
+      },
+      "body_metrics": {
+        "description": "Fill in your sex, date of birth and height",
+        "data": {
+          "sex": "Sex",
+          "height": "Height",
+          "birthdate": "Date of Birth"
+        }
+      },
+      "reconfigure": {
+        "description": "Configure device options",
+        "data": {
+          "unit_system": "Unit System",
+          "calculate body metrics": "Calculate body composition metrics"
+        }
+      },
+      "reconfigure_body_metrics": {
+        "description": "Fill in your sex, date of birth and height",
+        "data": {
+          "sex": "Sex",
+          "height": "Height",
+          "birthdate": "Date of Birth"
+        }
       }
     },
     "error": {
@@ -19,7 +48,8 @@
     "abort": {
       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
     }
   }
 }

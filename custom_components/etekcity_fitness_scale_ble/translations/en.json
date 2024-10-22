@@ -3,20 +3,50 @@
         "abort": {
             "already_configured": "Device is already configured",
             "already_in_progress": "Configuration flow is already in progress",
-            "no_devices_found": "No devices found on the network"
+            "no_devices_found": "No devices found on the network",
+            "reconfigure_successful": "Re-configuration was successful"
         },
         "error": {
             "cannot_connect": "Failed to connect",
             "unknown": "Unexpected error"
         },
-        "flow_title": "{name}",
+        "flow_title": "{name} ({address})",
         "step": {
             "bluetooth_confirm": {
-                "description": "Do you want to set up {name}?"
+                "data": {
+                    "calculate body metrics": "Calculate body composition metrics",
+                    "unit_system": "Unit System"
+                },
+                "description": "Configure device options"
+            },
+            "body_metrics": {
+                "data": {
+                    "birthdate": "Date of Birth",
+                    "height": "Height",
+                    "sex": "Sex"
+                },
+                "description": "Fill in your sex, date of birth and height"
+            },
+            "reconfigure": {
+                "data": {
+                    "calculate body metrics": "Calculate body composition metrics",
+                    "unit_system": "Unit System"
+                },
+                "description": "Configure device options"
+            },
+            "reconfigure_body_metrics": {
+                "data": {
+                    "birthdate": "Date of Birth",
+                    "height": "Height",
+                    "sex": "Sex"
+                },
+                "description": "Fill in your sex, date of birth and height"
             },
             "user": {
                 "data": {
-                    "address": "Device"
+                    "address": "Device",
+                    "calculate body metrics": "Calculate body composition metrics",
+                    "unit_system": "Unit System"
                 },
                 "description": "Choose a device to set up"
             }

@@ -1,12 +1,25 @@
 # Etekcity Fitness Scale BLE Integration for Home Assistant
 
-This custom integration allows you to connect your Etekcity Bluetooth Low Energy (BLE) fitness scale to Home Assistant. It provides real-time weight measurements directly in your Home Assistant instance, without requiring an internet connection or the VeSync app.
+This custom integration allows you to connect your Etekcity Bluetooth Low Energy (BLE) fitness scale to Home Assistant. It provides real-time weight measurements and body composition metrics directly in your Home Assistant instance, without requiring an internet connection or the VeSync app.
 
 ## Features
 
 - Automatic discovery of Etekcity BLE fitness scales
-- Real-time weight measurements
-- Customizable display units (kg, lb, st)
+- Real-time weight and impedance measurements
+- Optional body composition metrics calculation including:
+    - Body Mass Index (BMI)
+    - Body Fat Percentage
+    - Fat Free Weight
+    - Subcutaneous Fat Percentage
+    - Visceral Fat Value
+    - Body Water Percentage
+    - Basal Metabolic Rate
+    - Skeletal Muscle Percentage
+    - Muscle Mass
+    - Bone Mass
+    - Protein Percentage
+    - Metabolic Age
+- Customizable display units (kg, lb)
 - Direct Bluetooth communication (no internet or VeSync app required)
 
 **Note:** Currently, only weight measurement is supported. Future updates may include support for impedance measurements and/or impedance-based body composition estimates.
@@ -35,7 +48,14 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 1. In Home Assistant, go to "Configuration" > "Integrations".
 2. Click the "+" button to add a new integration.
 3. Search for "Etekcity Fitness Scale BLE" and select it.
-4. Follow the configuration steps to add your scale.
+4. Follow the configuration steps:
+    - Choose your preferred unit system (Metric or Imperial)
+    - Optionally enable body composition metrics
+    - If body composition is enabled:
+        - Select your sex (Male/Female)
+        - Enter your birthdate
+        - Enter your height (in cm for Metric, or feet/inches for Imperial)
+
 
 ## Supported Devices
 

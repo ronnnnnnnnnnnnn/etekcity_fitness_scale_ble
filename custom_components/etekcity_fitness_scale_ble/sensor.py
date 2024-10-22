@@ -1,12 +1,13 @@
 """Support for Etekcity Fitness Scale BLE sensors."""
 
-from __future__ import annotations
-
 import logging
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Self
 
-from etekcity_esf551_ble import WEIGHT_KEY, WeightUnit
+from etekcity_esf551_ble import IMPEDANCE_KEY, WEIGHT_KEY, Sex, WeightUnit
+from sensor_state_data import Units
+
 from homeassistant import config_entries
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -14,39 +15,93 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorExtraStoredData,
     SensorStateClass,
+    async_update_suggested_units,
 )
-from homeassistant.const import UnitOfMass
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import CONF_UNIT_SYSTEM, UnitOfMass
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import (
-    CONNECTION_BLUETOOTH,
-    DeviceInfo,
-)
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import UNDEFINED
-from sensor_state_data import DeviceClass, Units
 
-from .const import DOMAIN
+from .const import CONF_BIRTHDATE, CONF_CALC_BODY_METRICS, CONF_HEIGHT, CONF_SEX, DOMAIN
 from .coordinator import ScaleData, ScaleDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-SENSOR_DESCRIPTIONS = {
-    # Impedance sensor (ohm)
-    (DeviceClass.IMPEDANCE, Units.OHM): SensorEntityDescription(
-        key=f"{DeviceClass.IMPEDANCE}_{Units.OHM}",
-        icon="mdi:omega",
-        native_unit_of_measurement=Units.OHM,
+SENSOR_DESCRIPTIONS = [
+    SensorEntityDescription(
+        key="body_mass_index",
+        icon="mdi:human-male-height-variant",
         state_class=SensorStateClass.MEASUREMENT,
     ),
-    # Mass sensor (kg)
-    (DeviceClass.MASS, Units.MASS_KILOGRAMS): SensorEntityDescription(
-        key=f"{DeviceClass.MASS}_{Units.MASS_KILOGRAMS}",
+    SensorEntityDescription(
+        key="body_fat_percentage",
+        icon="mdi:human-handsdown",
+        native_unit_of_measurement=Units.PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="fat_free_weight",
+        icon="mdi:run",
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
     ),
-}
+    SensorEntityDescription(
+        key="subcutaneous_fat_percentage",
+        icon="mdi:human-handsdown",
+        native_unit_of_measurement=Units.PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="visceral_fat_value",
+        icon="mdi:human-handsdown",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="body_water_percentage",
+        icon="mdi:water-percent",
+        native_unit_of_measurement=Units.PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="basal_metabolic_rate",
+        icon="mdi:fire",
+        native_unit_of_measurement="cal",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="skeletal_muscle_percentage",
+        icon="mdi:weight-lifter",
+        native_unit_of_measurement=Units.PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="muscle_mass",
+        icon="mdi:weight-lifter",
+        device_class=SensorDeviceClass.WEIGHT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="bone_mass",
+        icon="mdi:bone",
+        device_class=SensorDeviceClass.WEIGHT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="protein_percentage",
+        icon="mdi:egg-fried",
+        native_unit_of_measurement=Units.PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="metabolic_age",
+        icon="mdi:human-walker",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+]
 
 
 async def async_setup_entry(
@@ -57,75 +112,74 @@ async def async_setup_entry(
     """Set up the scale sensors."""
     _LOGGER.debug("Setting up scale sensors for entry: %s", entry.entry_id)
     address = entry.unique_id
-    sensors_mapping = SENSOR_DESCRIPTIONS.copy()
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: ScaleDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entity = ScaleSensor(
-        entry.title,
-        address,
-        coordinator,
-        sensors_mapping[(DeviceClass.MASS, Units.MASS_KILOGRAMS)],
+    entities = [
+        ScaleWeightSensor(
+            entry.title,
+            address,
+            coordinator,
+            SensorEntityDescription(
+                key=WEIGHT_KEY,
+                icon="mdi:human-handsdown",
+                device_class=SensorDeviceClass.WEIGHT,
+                native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+                state_class=SensorStateClass.MEASUREMENT,
+            ),
+        ),
+        ScaleSensor(
+            entry.title,
+            address,
+            coordinator,
+            SensorEntityDescription(
+                key=IMPEDANCE_KEY,
+                icon="mdi:omega",
+                native_unit_of_measurement=Units.OHM,
+                state_class=SensorStateClass.MEASUREMENT,
+            ),
+        ),
+    ]
+
+    if entry.data.get(CONF_CALC_BODY_METRICS):
+        sex: Sex = Sex.Male if entry.data.get(CONF_SEX) == "Male" else Sex.Female
+
+        await coordinator.enable_body_metrics(
+            sex,
+            date.fromisoformat(entry.data.get(CONF_BIRTHDATE)),
+            entry.data.get(CONF_HEIGHT) / 100,
+        )
+        entities += [
+            ScaleSensor(entry.title, address, coordinator, desc)
+            for desc in SENSOR_DESCRIPTIONS
+        ]
+
+    def _update_unit(sensor: ScaleSensor, unit: str) -> ScaleSensor:
+        if sensor._attr_device_class == SensorDeviceClass.WEIGHT:
+            sensor._attr_suggested_unit_of_measurement = unit
+        return sensor
+
+    display_unit: UnitOfMass = entry.data.get(CONF_UNIT_SYSTEM)
+    coordinator.set_display_unit(
+        WeightUnit.KG if display_unit == UnitOfMass.KILOGRAMS else WeightUnit.LB
     )
-
-    async_add_entities([entity])
+    entities = list(
+        map(
+            lambda sensor: _update_unit(sensor, display_unit),
+            entities,
+        )
+    )
+    async_add_entities(entities)
+    async_update_suggested_units(hass)
+    await coordinator.async_start()
     _LOGGER.debug("Scale sensors setup completed for entry: %s", entry.entry_id)
 
 
-HW_VERSION_KEY = "hw_version"
-SW_VERSION_KEY = "sw_version"
-DISPLAY_UNIT_KEY = "display_unit"
-
-
-@dataclass
-class ScaleSensorExtraStoredData(SensorExtraStoredData):
-    """Object to hold extra stored data for the scale sensor."""
-
-    display_unit: str
-    hw_version: str
-    sw_version: str
-
-    def as_dict(self) -> dict[str, Any]:
-        """Return a dict representation of the scale sensor data."""
-        data = super().as_dict()
-        data[DISPLAY_UNIT_KEY] = self.display_unit
-        data[HW_VERSION_KEY] = self.hw_version
-        data[SW_VERSION_KEY] = self.sw_version
-
-        return data
-
-    @classmethod
-    def from_dict(cls, restored: dict[str, Any]) -> Self | None:
-        """Initialize a stored sensor state from a dict."""
-        extra = SensorExtraStoredData.from_dict(restored)
-        if extra is None:
-            return None
-
-        display_unit: str = restored.get(DISPLAY_UNIT_KEY)
-        if not display_unit:
-            display_unit = UNDEFINED
-
-        restored.setdefault("")
-        hw_version: str = restored.get(HW_VERSION_KEY)
-        sw_version: str = restored.get(SW_VERSION_KEY)
-
-        return cls(
-            extra.native_value,
-            extra.native_unit_of_measurement,
-            display_unit,
-            hw_version,
-            sw_version,
-        )
-
-
 class ScaleSensor(RestoreSensor):
-    """Representation of a sensor for the Etekcity scale."""
+    """Base sensor implementation for Etekcity scale measurements."""
 
     _attr_should_poll = False
     _attr_has_entity_name = True
     _attr_available = False
-    _attr_device_class = SensorDeviceClass.WEIGHT
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfMass.KILOGRAMS
 
     def __init__(
         self,
@@ -134,8 +188,7 @@ class ScaleSensor(RestoreSensor):
         coordinator: ScaleDataUpdateCoordinator,
         entity_description: SensorEntityDescription,
     ) -> None:
-        """
-        Initialize the scale sensor.
+        """Initialize the scale sensor.
 
         Args:
             name: The name of the sensor.
@@ -145,12 +198,17 @@ class ScaleSensor(RestoreSensor):
 
         """
         self.entity_description = entity_description
+        self._attr_device_class = entity_description.device_class
+        self._attr_state_class = entity_description.state_class
+        self._attr_native_unit_of_measurement = (
+            entity_description.native_unit_of_measurement
+        )
+        self._attr_icon = entity_description.icon
 
-        title = f"{name} {address}"
+        self._attr_name = f"{entity_description.key.replace("_", " ").title()}"
 
-        self._attr_unique_id = f"{title}_{entity_description.key}"
+        self._attr_unique_id = f"{name}_{entity_description.key}"
 
-        self._id = address
         self._attr_device_info = DeviceInfo(
             connections={(CONNECTION_BLUETOOTH, address)},
             name=name,
@@ -164,13 +222,104 @@ class ScaleSensor(RestoreSensor):
         _LOGGER.debug("Adding sensor to Home Assistant: %s", self.entity_id)
         await super().async_added_to_hass()
 
+        self._attr_available = await self.async_restore_data()
+
+        self.async_on_remove(self._coordinator.add_listener(self.handle_update))
+        _LOGGER.info("Sensor added to Home Assistant: %s", self.entity_id)
+
+    async def async_restore_data(self) -> bool:
+        """Restore last state from storage."""
+        if last_state := await self.async_get_last_sensor_data():
+            _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
+            self._attr_native_value = last_state.native_value
+            return True
+        return False
+
+    def handle_update(
+        self,
+        data: ScaleData,
+    ) -> None:
+        """Handle updated data from the scale.
+
+        This method is called when new data is received from the scale.
+        It updates the sensor's state and triggers a state update in Home Assistant.
+
+        Args:
+            data: The new scale data.
+
+        """
+        if measurement := data.measurements.get(self.entity_description.key):
+            _LOGGER.debug(
+                "Received update for sensor %s: %s",
+                self.entity_id,
+                measurement,
+            )
+            self._attr_available = True
+            self._attr_native_value = measurement
+
+            self.async_write_ha_state()
+            _LOGGER.debug("Sensor %s updated successfully", self.entity_id)
+
+
+HW_VERSION_KEY = "hw_version"
+SW_VERSION_KEY = "sw_version"
+
+
+@dataclass
+class ScaleWeightSensorExtraStoredData(SensorExtraStoredData):
+    """Object to hold extra stored data for the scale sensor."""
+
+    hw_version: str
+    sw_version: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a dict representation of the scale sensor data."""
+        data = super().as_dict()
+        data[HW_VERSION_KEY] = self.hw_version
+        data[SW_VERSION_KEY] = self.sw_version
+
+        return data
+
+    @classmethod
+    def from_dict(cls, restored: dict[str, Any]) -> Self | None:
+        """Initialize a stored sensor state from a dict."""
+        extra = SensorExtraStoredData.from_dict(restored)
+        if extra is None:
+            return None
+
+        restored.setdefault("")
+        hw_version: str = restored.get(HW_VERSION_KEY)
+        sw_version: str = restored.get(SW_VERSION_KEY)
+
+        return cls(
+            extra.native_value,
+            extra.native_unit_of_measurement,
+            hw_version,
+            sw_version,
+        )
+
+
+class ScaleWeightSensor(ScaleSensor):
+    """Representation of a weight sensor for the Etekcity scale."""
+
+    def __init__(
+        self,
+        name: str,
+        address: str,
+        coordinator: ScaleDataUpdateCoordinator,
+        entity_description: SensorEntityDescription,
+    ) -> None:
+        self._id = address
+        super().__init__(name, address, coordinator, entity_description)
+
+    async def async_restore_data(self) -> bool:
+        """Restore last state from storage."""
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
             self._attr_native_value = last_state.native_value
             self._attr_native_unit_of_measurement = (
                 last_state.native_unit_of_measurement
             )
-            self._sensor_option_unit_of_measurement = last_state.display_unit
 
             address = self._id
             device_registry = dr.async_get(self.hass)
@@ -182,75 +331,27 @@ class ScaleSensor(RestoreSensor):
                 or device_entry.sw_version != last_state.sw_version
             ):
                 hw_version = last_state.hw_version
-                if hw_version is None or hw_version == "":
+                if hw_version == None or hw_version == "":
                     hw_version = device_entry.hw_version
 
                 sw_version = last_state.sw_version
-                if sw_version is None or sw_version == "":
+                if sw_version == None or sw_version == "":
                     sw_version = device_entry.sw_version
 
                 device_registry.async_update_device(
-                    device_entry.id,
-                    hw_version=hw_version,
-                    sw_version=sw_version,
+                    device_entry.id, hw_version=hw_version, sw_version=sw_version
                 )
                 self._attr_device_info.update(
                     {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
                 )
-            self._attr_available = True
-
-        await self._coordinator.async_start(self.handle_update)
-        _LOGGER.info("Sensor added to Home Assistant: %s", self.entity_id)
-
-    @callback
-    def _async_read_entity_options(self) -> None:
-        _LOGGER.debug("Reading entity options for sensor: %s", self.entity_id)
-        previous_unit = self._sensor_option_unit_of_measurement
-        super()._async_read_entity_options()
-        if self._sensor_option_unit_of_measurement != previous_unit:
-            match self._sensor_option_unit_of_measurement:
-                case "kg" | "g" | "mg" | "µg":
-                    self._coordinator.set_display_unit(WeightUnit.KG)
-                case "lb" | "oz":
-                    self._coordinator.set_display_unit(WeightUnit.LB)
-                case "st":
-                    self._coordinator.set_display_unit(WeightUnit.ST)
-                case _:
-                    _LOGGER.warning("Unknown unit of measurement")
+            return True
+        return False
 
     def handle_update(
         self,
         data: ScaleData,
     ) -> None:
-        """
-        Handle updated data from the scale.
-
-        This method is called when new data is received from the scale.
-        It updates the sensor's state and triggers a state update in HA.
-
-        Args:
-            data: The new scale data.
-
-        """
-        _LOGGER.debug(
-            "Received update for sensor %s: %s",
-            self.entity_id,
-            data.measurements[WEIGHT_KEY],
-        )
-        self._attr_available = True
-        self._attr_native_value = data.measurements[WEIGHT_KEY]
-
-        if (
-            self._sensor_option_unit_of_measurement is None
-            or self._sensor_option_unit_of_measurement == UNDEFINED
-        ):
-            match data.display_unit:
-                case WeightUnit.KG:
-                    self._sensor_option_unit_of_measurement = UnitOfMass.KILOGRAMS
-                case WeightUnit.LB:
-                    self._sensor_option_unit_of_measurement = UnitOfMass.POUNDS
-                case WeightUnit.ST:
-                    self._sensor_option_unit_of_measurement = UnitOfMass.STONES
+        """Handle updated data from the scale."""
 
         address = self._id
         device_registry = dr.async_get(self.hass)
@@ -262,11 +363,11 @@ class ScaleSensor(RestoreSensor):
             or device_entry.sw_version != data.sw_version
         ):
             hw_version = data.hw_version
-            if hw_version is None or hw_version == "":
+            if hw_version == None or hw_version == "":
                 hw_version = device_entry.hw_version
 
             sw_version = data.sw_version
-            if sw_version is None or sw_version == "":
+            if sw_version == None or sw_version == "":
                 sw_version = device_entry.sw_version
 
             device_registry.async_update_device(
@@ -276,34 +377,33 @@ class ScaleSensor(RestoreSensor):
                 {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
             )
 
-        self.async_write_ha_state()
-        _LOGGER.debug("Sensor %s updated successfully", self.entity_id)
+        super().handle_update(data)
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
         return {
-            DISPLAY_UNIT_KEY: self._sensor_option_unit_of_measurement,
             HW_VERSION_KEY: self._attr_device_info.get(HW_VERSION_KEY),
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
 
     @property
-    def extra_restore_state_data(self) -> ScaleSensorExtraStoredData:
+    def extra_restore_state_data(self) -> ScaleWeightSensorExtraStoredData:
         """Return sensor specific state data to be restored."""
-        return ScaleSensorExtraStoredData(
+        return ScaleWeightSensorExtraStoredData(
             self.native_value,
             self.native_unit_of_measurement,
-            self._sensor_option_unit_of_measurement,
             self._attr_device_info.get(HW_VERSION_KEY),
             self._attr_device_info.get(SW_VERSION_KEY),
         )
 
     async def async_get_last_sensor_data(
         self,
-    ) -> ScaleSensorExtraStoredData | None:
+    ) -> ScaleWeightSensorExtraStoredData | None:
         """Restore Scale Sensor Extra Stored Data."""
         if (restored_last_extra_data := await self.async_get_last_extra_data()) is None:
             return None
 
-        return ScaleSensorExtraStoredData.from_dict(restored_last_extra_data.as_dict())
+        return ScaleWeightSensorExtraStoredData.from_dict(
+            restored_last_extra_data.as_dict()
+        )
