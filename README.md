@@ -52,9 +52,9 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
     - Choose your preferred unit system (Metric or Imperial)
     - Optionally enable body composition metrics
     - If body composition is enabled:
-        - Select your sex (Male/Female)
-        - Enter your birthdate
-        - Enter your height (in cm for Metric, or feet/inches for Imperial)
+        - Select your sex
+        - Enter your date of birth
+        - Enter your height
 
 
 ## Supported Devices
