@@ -2,6 +2,8 @@
 
 This custom integration allows you to connect your Etekcity Bluetooth Low Energy (BLE) fitness scale to Home Assistant. It provides real-time weight measurements and body composition metrics directly in your Home Assistant instance, without requiring an internet connection or the VeSync app.
 
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/ronnnnnnn)
+
 ## Features
 
 - Automatic discovery of Etekcity BLE fitness scales
@@ -21,10 +23,6 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
     - Metabolic Age
 - Customizable display units (kg, lb)
 - Direct Bluetooth communication (no internet or VeSync app required)
-
-**Note:** Currently, only weight measurement is supported. Future updates may include support for impedance measurements and/or impedance-based body composition estimates.
-
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/ronnnnnnn)
 
 ## Installation
 
