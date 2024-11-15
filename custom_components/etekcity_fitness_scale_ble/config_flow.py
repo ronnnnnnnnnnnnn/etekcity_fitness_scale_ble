@@ -70,7 +70,11 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             vol.Required(
                 CONF_BIRTHDATE,
-            ): selector.DateSelector(),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.DATE,
+                ),
+            ),
             vol.Required(CONF_HEIGHT, default=170): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1,
@@ -93,7 +97,11 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             vol.Required(
                 CONF_BIRTHDATE,
-            ): selector.DateSelector(),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.DATE,
+                ),
+            ),
             vol.Required(CONF_FEET, default=5): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1,
