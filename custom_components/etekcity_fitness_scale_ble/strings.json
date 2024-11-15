@@ -1,6 +1,6 @@
 {
   "config": {
-    "flow_title": "{name} ({address})",
+    "flow_title": "{name}",
     "step": {
       "user": {
         "description": "[%key:component::bluetooth::config::step::user::description%]",
