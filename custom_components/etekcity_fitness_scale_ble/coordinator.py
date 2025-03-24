@@ -33,7 +33,7 @@ from etekcity_esf551_ble import (
     Sex,
     WeightUnit,
 )
-from habluetooth import HaScannerRegistration, HaScannerRegistrationEvent
+from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 
 SYSTEM = platform.system()
@@ -55,9 +55,6 @@ if IS_LINUX:
             OrPattern(0, AdvertisementDataType.FLAGS, b"\x1a"),
         ]
     )
-
-if IS_MACOS:
-    from bleak.backends.corebluetooth.scanner import CBScannerArgs
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -630,7 +627,7 @@ class ScaleDataUpdateCoordinator:
                         native = True
                         _LOGGER.debug("Found native Bluetooth adapter: %s", adapter)
                         break
-                if native == False:
+                if not native:
                     for adapter in manager._bluetooth_adapters.adapters.keys():
                         if sources.get(adapter) is not None:
                             native = True
@@ -709,9 +706,9 @@ class ScaleDataUpdateCoordinator:
             try:
                 if self.body_metrics_enabled:
                     if (
-                        self._sex == None
-                        or self._birthdate == None
-                        or self._height_m == None
+                        self._sex is None
+                        or self._birthdate is None
+                        or self._height_m is None
                     ):
                         _LOGGER.error(
                             "Body metrics enabled but required parameters are missing"
