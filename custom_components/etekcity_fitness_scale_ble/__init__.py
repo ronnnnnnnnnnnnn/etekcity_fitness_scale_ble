@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from bleak_retry_connector import close_stale_connections_by_address
-
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -24,7 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     assert address is not None
     await close_stale_connections_by_address(address)
 
-    coordinator = ScaleDataUpdateCoordinator(address)
+    coordinator = ScaleDataUpdateCoordinator(hass, address)
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

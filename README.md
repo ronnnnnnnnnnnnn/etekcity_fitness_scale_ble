@@ -24,6 +24,12 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 - Customizable display units (kg, lb)
 - Direct Bluetooth communication (no internet or VeSync app required)
 
+## Notes
+
+- **Athlete Mode**: This integration does not currently support athlete mode. All measurements are based on standard calculations.
+- **Underlying Library**: This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library for communication with the scale.
+- **ESPHome Bluetooth Proxy**: To use ESPHome devices as Bluetooth proxies, ensure they are properly configured with Bluetooth proxy support in ESPHome.
+
 ## Installation
 
 ### HACS (Recommended)
@@ -31,10 +37,9 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ronnnnnnnnnnnnn&repository=etekcity_fitness_scale_ble&category=integration)
 
 1. Ensure that [HACS](https://hacs.xyz/) is installed in your Home Assistant instance.
-2. In the HACS panel, go to "Integrations".
-3. Click the "+" button and search for "Etekcity Fitness Scale BLE".
-4. Click "Install" on the Etekcity Fitness Scale BLE integration.
-5. Restart Home Assistant.
+2. In the HACS panel, search for "Etekcity Fitness Scale BLE".
+3. Click "Download" on the Etekcity Fitness Scale BLE integration.
+4. Restart Home Assistant.
 
 ### Manual Installation
 
@@ -85,7 +90,7 @@ scan on
 
 If you find this unofficial project helpful, consider buying me a coffee! Your support helps maintain and improve this integration.
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/ronnnnnnn)
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/ronnnnnnn)
 
 ## License
 
