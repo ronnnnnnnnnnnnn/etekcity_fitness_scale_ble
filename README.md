@@ -26,9 +26,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Notes
 
-- **Athlete Mode**: This integration does not currently support athlete mode. All measurements are based on standard calculations.
-- **Underlying Library**: This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library for communication with the scale.
-- **ESPHome Bluetooth Proxy**: To use ESPHome devices as Bluetooth proxies, ensure they are properly configured with Bluetooth proxy support in ESPHome.
+- This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
+- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library for communication with the scale.
 
 ## Installation
 
