@@ -70,8 +70,7 @@ Other Etekcity BLE fitness scale models may work but have not been tested. If yo
 
 ## Troubleshooting
 
-- Ensure that your Home Assistant instance has Bluetooth capabilities and that the Bluetooth integration is properly set up.
-- Make sure your scale is within range of your Home Assistant device.
+- Make sure your scale is within range of your Home Assistant device, or within range of at least one ESPHome device configured as a Bluetooth proxy in Home Assistant.
 - If you encounter any issues, please check the Home Assistant logs for more information.
 
 ### Raspberry Pi 4 and other Linux machines using BlueZ
