@@ -267,8 +267,8 @@ class BleakScannerESPHome(BaseBleakScanner):
                 adv.name or "",
                 adv.manufacturer_data,
                 advertisement_data,
-            ) 
-        else: 
+            )
+        else:
             device = self.create_or_update_device(
                 address,
                 adv.name or "",
@@ -334,8 +334,8 @@ class BleakScannerESPHome(BaseBleakScanner):
                     adv.name or "",
                     adv.manufacturer_data,
                     advertisement_data,
-                ) 
-            else: 
+                )
+            else:
                 device = self.create_or_update_device(
                     address,
                     adv.name or "",
