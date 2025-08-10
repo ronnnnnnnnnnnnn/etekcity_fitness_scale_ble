@@ -259,6 +259,7 @@ class BleakScannerESPHome(BaseBleakScanner):
             adv.name or "",
             adv.manufacturer_data,
             advertisement_data,
+            adv,
         )
 
         # Call the detection callbacks
@@ -317,6 +318,7 @@ class BleakScannerESPHome(BaseBleakScanner):
                 local_name or "",
                 manufacturer_data,
                 advertisement_data,
+                adv,
             )
 
             # Call the detection callbacks
