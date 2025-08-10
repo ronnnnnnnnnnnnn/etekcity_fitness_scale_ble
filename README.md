@@ -26,9 +26,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Notes
 
-- **Athlete Mode**: This integration does not currently support athlete mode. All measurements are based on standard calculations.
-- **Underlying Library**: This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library for communication with the scale.
-- **ESPHome Bluetooth Proxy**: To use ESPHome devices as Bluetooth proxies, ensure they are properly configured with Bluetooth proxy support in ESPHome.
+- This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
+- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library for communication with the scale.
 
 ## Installation
 
@@ -70,8 +69,7 @@ Other Etekcity BLE fitness scale models may work but have not been tested. If yo
 
 ## Troubleshooting
 
-- Ensure that your Home Assistant instance has Bluetooth capabilities and that the Bluetooth integration is properly set up.
-- Make sure your scale is within range of your Home Assistant device.
+- Make sure your scale is within range of your Home Assistant device, or within range of at least one ESPHome device configured as a Bluetooth proxy in Home Assistant.
 - If you encounter any issues, please check the Home Assistant logs for more information.
 
 ### Raspberry Pi 4 and other Linux machines using BlueZ
