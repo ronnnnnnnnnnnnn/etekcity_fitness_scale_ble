@@ -9,6 +9,7 @@ import platform
 from collections.abc import Callable
 from datetime import date
 from functools import partial
+from importlib.metadata import version as get_version
 from packaging import version
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -107,7 +108,11 @@ class BleakScannerESPHome(BaseBleakScanner):
         self._active_clients: Dict[APIClient, Dict[str, Any]] = {}
 
         # Check if bleak version >= 1 to correctly call create_or_update_device
-        self._bleak_v1 = version.parse(bleak.__version__) >= version.parse("1.0.0")
+        try:
+            bleak_version = version.parse(get_version("bleak"))
+            self._bleak_v1 = bleak_version >= version.parse("1.0.0")
+        except Exception:
+            self._bleak_v1 = False
 
     async def start(self) -> None:
         """Start scanning for devices with enhanced error handling."""
