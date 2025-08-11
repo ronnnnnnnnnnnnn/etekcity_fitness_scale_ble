@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import bleak
 import logging
 import platform
 from collections.abc import Callable
