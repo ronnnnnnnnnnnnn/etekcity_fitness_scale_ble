@@ -8,8 +8,6 @@ import platform
 from collections.abc import Callable
 from datetime import date
 from functools import partial
-from importlib.metadata import version as get_version
-from packaging import version
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from aioesphomeapi import APIClient, BluetoothProxyFeature
@@ -105,13 +103,6 @@ class BleakScannerESPHome(BaseBleakScanner):
             client: None for client in self._clients
         }
         self._active_clients: Dict[APIClient, Dict[str, Any]] = {}
-
-        # Check if bleak version >= 1 to correctly call create_or_update_device
-        try:
-            bleak_version = version.parse(get_version("bleak"))
-            self._bleak_v1 = bleak_version >= version.parse("1.0.0")
-        except Exception:
-            self._bleak_v1 = False
 
     async def start(self) -> None:
         """Start scanning for devices with enhanced error handling."""
@@ -264,21 +255,13 @@ class BleakScannerESPHome(BaseBleakScanner):
 
         # Update the device in our seen_devices dictionary
         address = int_to_bluetooth_address(adv.address)
-        if self._bleak_v1:
-            device = self.create_or_update_device(
-                address,
-                address,
-                adv.name or "",
-                adv.manufacturer_data,
-                advertisement_data,
-            )
-        else:
-            device = self.create_or_update_device(
-                address,
-                adv.name or "",
-                adv.manufacturer_data,
-                advertisement_data,
-            )
+        device = self.create_or_update_device(
+            address,
+            address,
+            adv.name or "",
+            adv.manufacturer_data,
+            advertisement_data,
+        )
 
         # Call the detection callbacks
         self.call_detection_callbacks(device, advertisement_data)
@@ -331,21 +314,13 @@ class BleakScannerESPHome(BaseBleakScanner):
             )
 
             # Update the device in our seen_devices dictionary
-            if self._bleak_v1:
-                device = self.create_or_update_device(
-                    address,
-                    address,
-                    adv.name or "",
-                    adv.manufacturer_data,
-                    advertisement_data,
-                )
-            else:
-                device = self.create_or_update_device(
-                    address,
-                    adv.name or "",
-                    adv.manufacturer_data,
-                    advertisement_data,
-                )
+            device = self.create_or_update_device(
+                address,
+                address,
+                adv.name or "",
+                adv.manufacturer_data,
+                advertisement_data,
+            )
 
             # Call the detection callbacks
             self.call_detection_callbacks(device, advertisement_data)
