@@ -317,8 +317,8 @@ class BleakScannerESPHome(BaseBleakScanner):
             device = self.create_or_update_device(
                 address,
                 address,
-                adv.name or "",
-                adv.manufacturer_data,
+                local_name or "",
+                manufacturer_data,
                 advertisement_data,
             )
 
