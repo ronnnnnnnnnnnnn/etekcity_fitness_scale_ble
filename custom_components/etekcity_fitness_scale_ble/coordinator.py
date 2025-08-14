@@ -255,13 +255,25 @@ class BleakScannerESPHome(BaseBleakScanner):
 
         # Update the device in our seen_devices dictionary
         address = int_to_bluetooth_address(adv.address)
-        device = self.create_or_update_device(
-            address,
-            address,
-            adv.name or "",
-            adv.manufacturer_data,
-            advertisement_data,
-        )
+        try:
+            device = self.create_or_update_device(
+                address,
+                address,
+                adv.name or "",
+                adv.manufacturer_data,
+                advertisement_data,
+            )
+        except TypeError:
+            # Fallback for older versions of create_or_update_device
+            _LOGGER.debug(
+                "Using fallback create_or_update_device for bleak version < 1.0.0"
+            )
+            device = self.create_or_update_device(
+                address,
+                adv.name or "",
+                adv.manufacturer_data,
+                advertisement_data,
+            )
 
         # Call the detection callbacks
         self.call_detection_callbacks(device, advertisement_data)
@@ -314,13 +326,25 @@ class BleakScannerESPHome(BaseBleakScanner):
             )
 
             # Update the device in our seen_devices dictionary
-            device = self.create_or_update_device(
-                address,
-                address,
-                local_name or "",
-                manufacturer_data,
-                advertisement_data,
-            )
+            try:
+                device = self.create_or_update_device(
+                    address,
+                    address,
+                    local_name or "",
+                    manufacturer_data,
+                    advertisement_data,
+                )
+            except TypeError:
+                # Fallback for older versions of create_or_update_device
+                _LOGGER.debug(
+                    "Using fallback create_or_update_device for bleak version < 1.0.0"
+                )
+                device = self.create_or_update_device(
+                    address,
+                    local_name or "",
+                    manufacturer_data,
+                    advertisement_data,
+                )
 
             # Call the detection callbacks
             self.call_detection_callbacks(device, advertisement_data)
