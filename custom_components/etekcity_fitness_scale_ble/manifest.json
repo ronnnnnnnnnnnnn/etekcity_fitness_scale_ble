@@ -1,6 +1,10 @@
 {
   "domain": "etekcity_fitness_scale_ble",
   "name": "Etekcity Fitness Scale BLE",
+  "after_dependencies": [
+    "bluetooth",
+    "esphome"
+  ],
   "bluetooth": [
     {
       "connectable": true,
@@ -18,10 +22,6 @@
   "config_flow": true,
   "dependencies": [
     "bluetooth_adapters"
-  ],
-  "after_dependencies": [
-    "bluetooth",
-    "esphome"
   ],
   "documentation": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
   "integration_type": "device",
