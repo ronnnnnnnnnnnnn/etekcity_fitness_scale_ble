@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - "main"
+      - "esf24"
   pull_request:
     branches:
       - "main"
+      - "esf24"
 
 jobs:
   ruff:
