@@ -28,5 +28,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues",
   "requirements": ["etekcity_esf551_ble==0.4.0b1"],
-  "version": "0.3.6"
+  "version": "0.4.0b1"
 }

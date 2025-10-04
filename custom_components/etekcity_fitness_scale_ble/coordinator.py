@@ -37,7 +37,7 @@ from etekcity_esf551_ble import (
 )
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
-from .const import CONF_SCALE_MODEL, ScaleModel
+from .const import ScaleModel
 
 SYSTEM = platform.system()
 IS_LINUX = SYSTEM == "Linux"
