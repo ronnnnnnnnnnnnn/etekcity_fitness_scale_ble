@@ -6,6 +6,10 @@
       "connectable": true,
       "manufacturer_id": 1744,
       "local_name": "Etekcity *Fitness *Scale*"
+    },
+    {
+      "connectable": true,
+      "local_name": "QN-Scale1"
     }
   ],
   "codeowners": [
@@ -23,6 +27,6 @@
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues",
-  "requirements": ["etekcity_esf551_ble==0.3.1"],
+  "requirements": ["etekcity_esf551_ble==0.4.0b1"],
   "version": "0.3.6"
 }

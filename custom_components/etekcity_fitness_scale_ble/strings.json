@@ -11,7 +11,7 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "Configure device options",
+        "description": "Configure device options{esf24_note}",
         "data": {
           "unit_system": "Unit System",
           "calculate body metrics": "Calculate body composition metrics"

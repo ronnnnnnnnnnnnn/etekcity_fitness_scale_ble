@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -24,11 +25,43 @@ from .const import (
     CONF_FEET,
     CONF_HEIGHT,
     CONF_INCHES,
+    CONF_SCALE_MODEL,
     CONF_SEX,
     DOMAIN,
+    SCALE_DETECTION_PATTERNS,
+    ScaleModel,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
+    """Detect the scale model based on advertisement data.
+
+    Args:
+        discovery_info: The Bluetooth service info for the discovered device.
+
+    Returns:
+        The detected scale model.
+    """
+    # Check for ESF-24 first (more specific pattern)
+    esf24_pattern = SCALE_DETECTION_PATTERNS[ScaleModel.ESF24]
+    if discovery_info.name and discovery_info.name == esf24_pattern["local_name"]:
+        _LOGGER.debug("Detected ESF-24 scale: %s", discovery_info.name)
+        return ScaleModel.ESF24
+
+    # Check for ESF-551
+    esf551_pattern = SCALE_DETECTION_PATTERNS[ScaleModel.ESF551]
+    if discovery_info.name:
+        # Use regex pattern matching for ESF-551
+        pattern = esf551_pattern.get("local_name_pattern", "").replace("*", ".*")
+        if re.search(pattern, discovery_info.name, re.IGNORECASE):
+            _LOGGER.debug("Detected ESF-551 scale: %s", discovery_info.name)
+            return ScaleModel.ESF551
+
+    # Default to ESF-551 for backward compatibility
+    _LOGGER.debug("Unknown scale model, defaulting to ESF-551: %s", discovery_info.name)
+    return ScaleModel.ESF551
 
 
 @dataclasses.dataclass(frozen=True)
@@ -129,6 +162,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
 
+        # Detect scale model from advertisement data
+        scale_model = detect_scale_model(discovery_info)
+        self.context["scale_model"] = scale_model
+
         self.context["title_placeholders"] = {"name": title(discovery_info)}
 
         return await self.async_step_bluetooth_confirm()
@@ -137,31 +174,60 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Confirm discovery."""
+        scale_model = self.context.get("scale_model", ScaleModel.ESF551)
+        
+        # Handle user input for both scale models
         if user_input is not None:
-            if user_input[CONF_CALC_BODY_METRICS]:
-                self.context[CONF_UNIT_SYSTEM] = user_input[CONF_UNIT_SYSTEM]
-                return await self.async_step_body_metrics()
+            if scale_model == ScaleModel.ESF24:
+                # ESF24: Create entry with fixed values (no user choice needed)
+                return self.async_create_entry(
+                    title=self.context["title_placeholders"]["name"],
+                    data={
+                        CONF_UNIT_SYSTEM: UnitOfMass.KILOGRAMS,  # ESF24 only supports kg
+                        CONF_CALC_BODY_METRICS: False,  # ESF24 doesn't support body metrics
+                        CONF_SCALE_MODEL: scale_model,
+                    },
+                )
+            else:
+                # ESF551: Handle normal configuration flow
+                if user_input[CONF_CALC_BODY_METRICS]:
+                    self.context[CONF_UNIT_SYSTEM] = user_input[CONF_UNIT_SYSTEM]
+                    return await self.async_step_body_metrics()
 
-            return self.async_create_entry(
-                title=self.context["title_placeholders"]["name"],
-                data={
-                    CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM],
-                    CONF_CALC_BODY_METRICS: False,
-                },
+                return self.async_create_entry(
+                    title=self.context["title_placeholders"]["name"],
+                    data={
+                        CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM],
+                        CONF_CALC_BODY_METRICS: False,
+                        CONF_SCALE_MODEL: scale_model,
+                    },
+                )
+
+        # Show confirmation form
+        description_placeholders = self.context["title_placeholders"].copy()
+        
+        # For ESF24, show a simple confirmation without unit/body metrics options
+        if scale_model == ScaleModel.ESF24:
+            description_placeholders["esf24_note"] = " (ESF-24 detected - experimental support, weight only)"
+            return self.async_show_form(
+                step_id="bluetooth_confirm",
+                description_placeholders=description_placeholders,
+                data_schema=vol.Schema({}),  # No user input needed for ESF24
             )
-
-        return self.async_show_form(
-            step_id="bluetooth_confirm",
-            description_placeholders=self.context["title_placeholders"],
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_UNIT_SYSTEM): vol.In(
-                        {UnitOfMass.KILOGRAMS: "Metric", UnitOfMass.POUNDS: "Imperial"}
-                    ),
-                    vol.Required(CONF_CALC_BODY_METRICS, default=False): cv.boolean,
-                }
-            ),
-        )
+        else:
+            # For ESF551, show full configuration options
+            return self.async_show_form(
+                step_id="bluetooth_confirm",
+                description_placeholders=description_placeholders,
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_UNIT_SYSTEM): vol.In(
+                            {UnitOfMass.KILOGRAMS: "Metric", UnitOfMass.POUNDS: "Imperial"}
+                        ),
+                        vol.Required(CONF_CALC_BODY_METRICS, default=False): cv.boolean,
+                    }
+                ),
+            )
 
     def _convert_height_measurements(
         self, unit: str, user_input: dict[str, Any]
@@ -217,6 +283,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_HEIGHT: centimeters,
                     CONF_FEET: feet,
                     CONF_INCHES: inches,
+                    CONF_SCALE_MODEL: self.context.get("scale_model", ScaleModel.ESF551),
                 },
             )
 
@@ -242,17 +309,34 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             discovery = self._discovered_devices[address]
 
-            if user_input[CONF_CALC_BODY_METRICS]:
-                self.context[CONF_UNIT_SYSTEM] = user_input[CONF_UNIT_SYSTEM]
-                return await self.async_step_body_metrics()
+            # Detect scale model for manual discovery
+            scale_model = detect_scale_model(discovery.discovery_info)
+            self.context["scale_model"] = scale_model
 
-            return self.async_create_entry(
-                title=discovery.title,
-                data={
-                    CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM],
-                    CONF_CALC_BODY_METRICS: False,
-                },
-            )
+            if scale_model == ScaleModel.ESF24:
+                # ESF24: Create entry with fixed values
+                return self.async_create_entry(
+                    title=discovery.title,
+                    data={
+                        CONF_UNIT_SYSTEM: UnitOfMass.KILOGRAMS,
+                        CONF_CALC_BODY_METRICS: False,
+                        CONF_SCALE_MODEL: scale_model,
+                    },
+                )
+            else:
+                # ESF551: Handle normal configuration flow
+                if user_input[CONF_CALC_BODY_METRICS]:
+                    self.context[CONF_UNIT_SYSTEM] = user_input[CONF_UNIT_SYSTEM]
+                    return await self.async_step_body_metrics()
+
+                return self.async_create_entry(
+                    title=discovery.title,
+                    data={
+                        CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM],
+                        CONF_CALC_BODY_METRICS: False,
+                        CONF_SCALE_MODEL: scale_model,
+                    },
+                )
 
         current_addresses = self._async_current_ids()
         for discovery_info in async_discovered_service_info(self.hass):
@@ -300,7 +384,15 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         if TYPE_CHECKING:
             assert self._entry is not None
 
+        # Get scale model from entry data
+        scale_model = self._entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
+
         if user_input is not None:
+            if scale_model == ScaleModel.ESF24:
+                # ESF24: No reconfiguration allowed, just show info
+                return self.async_abort(reason="reconfigure_successful")
+            
+            # ESF551: Handle normal reconfiguration
             if user_input[CONF_CALC_BODY_METRICS]:
                 self.context[CONF_UNIT_SYSTEM] = user_input[CONF_UNIT_SYSTEM]
                 return await self.async_step_reconfigure_body_metrics()
@@ -312,6 +404,16 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM]},
             )
 
+        # Show reconfiguration form
+        if scale_model == ScaleModel.ESF24:
+            # ESF24: Show info that reconfiguration is not available
+            return self.async_show_form(
+                step_id="reconfigure",
+                description_placeholders={"esf24_note": " (ESF-24 scale configuration cannot be changed. This device only supports weight measurements in kilograms.)"},
+                data_schema=vol.Schema({}),  # No user input needed
+            )
+        
+        # ESF551: Show full reconfiguration options
         if not (body_metrics_enabled := self._entry.data.get(CONF_CALC_BODY_METRICS)):
             body_metrics_enabled = False
 

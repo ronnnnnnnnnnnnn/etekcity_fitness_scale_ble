@@ -27,6 +27,8 @@ from bluetooth_data_tools import (
 )
 from etekcity_esf551_ble import (
     BluetoothScanningMode,
+    ESF24Scale,
+    ESF551Scale,
     EtekcitySmartFitnessScale,
     EtekcitySmartFitnessScaleWithBodyMetrics,
     ScaleData,
@@ -35,6 +37,7 @@ from etekcity_esf551_ble import (
 )
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
+from .const import CONF_SCALE_MODEL, ScaleModel
 
 SYSTEM = platform.system()
 IS_LINUX = SYSTEM == "Linux"
@@ -608,15 +611,17 @@ class ScaleDataUpdateCoordinator:
     _birthdate: Optional[date] = None
     _height_m: Optional[float] = None
 
-    def __init__(self, hass: HomeAssistant, address: str) -> None:
+    def __init__(self, hass: HomeAssistant, address: str, scale_model: ScaleModel = ScaleModel.ESF551) -> None:
         """Initialize the ScaleDataUpdateCoordinator.
 
         Args:
             hass: The Home Assistant instance.
             address: The Bluetooth address of the scale.
+            scale_model: The detected scale model.
         """
         self.address = address
         self._hass = hass
+        self._scale_model = scale_model
         self._lock = asyncio.Lock()
         self._listeners: Dict[Callable[[], None], Callable[[ScaleData], None]] = {}
 
@@ -729,7 +734,7 @@ class ScaleDataUpdateCoordinator:
             # Get the optimal scanner
             scanner = await self._get_bluetooth_scanner()
 
-            # Initialize appropriate client
+            # Initialize appropriate client based on scale model
             try:
                 if self.body_metrics_enabled:
                     if (
@@ -742,26 +747,54 @@ class ScaleDataUpdateCoordinator:
                         )
                         raise ValueError("Missing required body metrics parameters")
 
-                    _LOGGER.debug(
-                        "Initializing new EtekcitySmartFitnessScaleWithBodyMetrics client"
-                    )
-                    self._client = EtekcitySmartFitnessScaleWithBodyMetrics(
-                        self.address,
-                        self.update_listeners,
-                        self._sex,
-                        self._birthdate,
-                        self._height_m,
-                        self._display_unit,
-                        bleak_scanner_backend=scanner,
-                    )
+                    # Body metrics only supported on ESF-551
+                    if self._scale_model != ScaleModel.ESF551:
+                        _LOGGER.warning(
+                            "Body metrics requested but scale model %s does not support body metrics. "
+                            "Disabling body metrics.",
+                            self._scale_model
+                        )
+                        self.body_metrics_enabled = False
+                    else:
+                        _LOGGER.debug(
+                            "Initializing new EtekcitySmartFitnessScaleWithBodyMetrics client"
+                        )
+                        self._client = EtekcitySmartFitnessScaleWithBodyMetrics(
+                            self.address,
+                            self.update_listeners,
+                            self._sex,
+                            self._birthdate,
+                            self._height_m,
+                            self._display_unit,
+                            bleak_scanner_backend=scanner,
+                        )
                 else:
-                    _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
-                    self._client = EtekcitySmartFitnessScale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        bleak_scanner_backend=scanner,
-                    )
+                    # Choose appropriate scale class based on model
+                    if self._scale_model == ScaleModel.ESF24:
+                        _LOGGER.debug("Initializing new ESF24Scale client (experimental)")
+                        self._client = ESF24Scale(
+                            self.address,
+                            self.update_listeners,
+                            self._display_unit,
+                            bleak_scanner_backend=scanner,
+                        )
+                    elif self._scale_model == ScaleModel.ESF551:
+                        _LOGGER.debug("Initializing new ESF551Scale client")
+                        self._client = ESF551Scale(
+                            self.address,
+                            self.update_listeners,
+                            self._display_unit,
+                            bleak_scanner_backend=scanner,
+                        )
+                    else:
+                        # Fallback to ESF551 for backward compatibility
+                        _LOGGER.debug("Unknown scale model, defaulting to ESF551Scale client")
+                        self._client = ESF551Scale(
+                            self.address,
+                            self.update_listeners,
+                            self._display_unit,
+                            bleak_scanner_backend=scanner,
+                        )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")

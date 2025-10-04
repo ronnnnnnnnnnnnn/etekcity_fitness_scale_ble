@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import CONF_SCALE_MODEL, DOMAIN, ScaleModel
 from .coordinator import ScaleDataUpdateCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
@@ -23,7 +23,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     assert address is not None
     await close_stale_connections_by_address(address)
 
-    coordinator = ScaleDataUpdateCoordinator(hass, address)
+    # Get scale model from config entry, default to ESF551 for backward compatibility
+    scale_model = entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
+
+    coordinator = ScaleDataUpdateCoordinator(hass, address, scale_model)
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

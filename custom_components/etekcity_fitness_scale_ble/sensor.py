@@ -23,7 +23,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_BIRTHDATE, CONF_CALC_BODY_METRICS, CONF_HEIGHT, CONF_SEX, DOMAIN
+from .const import CONF_BIRTHDATE, CONF_CALC_BODY_METRICS, CONF_HEIGHT, CONF_SCALE_MODEL, CONF_SEX, DOMAIN, ScaleModel
 from .coordinator import ScaleData, ScaleDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -114,7 +114,14 @@ async def async_setup_entry(
     address = entry.unique_id
     coordinator: ScaleDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities = [
+    # Get scale model from config entry
+    scale_model = entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
+    _LOGGER.debug("Scale model detected: %s", scale_model)
+
+    entities = []
+
+    # Always create weight sensor
+    entities.append(
         ScaleWeightSensor(
             entry.title,
             address,
@@ -127,31 +134,36 @@ async def async_setup_entry(
                 state_class=SensorStateClass.MEASUREMENT,
             ),
         ),
-        ScaleSensor(
-            entry.title,
-            address,
-            coordinator,
-            SensorEntityDescription(
-                key=IMPEDANCE_KEY,
-                icon="mdi:omega",
-                native_unit_of_measurement=Units.OHM,
-                state_class=SensorStateClass.MEASUREMENT,
+    )
+
+    # ESF-551 supports impedance and body metrics, ESF-24 only supports weight
+    if scale_model == ScaleModel.ESF551:
+        entities.append(
+            ScaleSensor(
+                entry.title,
+                address,
+                coordinator,
+                SensorEntityDescription(
+                    key=IMPEDANCE_KEY,
+                    icon="mdi:omega",
+                    native_unit_of_measurement=Units.OHM,
+                    state_class=SensorStateClass.MEASUREMENT,
+                ),
             ),
-        ),
-    ]
-
-    if entry.data.get(CONF_CALC_BODY_METRICS):
-        sex: Sex = Sex.Male if entry.data.get(CONF_SEX) == "Male" else Sex.Female
-
-        await coordinator.enable_body_metrics(
-            sex,
-            date.fromisoformat(entry.data.get(CONF_BIRTHDATE)),
-            entry.data.get(CONF_HEIGHT) / 100,
         )
-        entities += [
-            ScaleSensor(entry.title, address, coordinator, desc)
-            for desc in SENSOR_DESCRIPTIONS
-        ]
+
+        if entry.data.get(CONF_CALC_BODY_METRICS):
+            sex: Sex = Sex.Male if entry.data.get(CONF_SEX) == "Male" else Sex.Female
+
+            await coordinator.enable_body_metrics(
+                sex,
+                date.fromisoformat(entry.data.get(CONF_BIRTHDATE)),
+                entry.data.get(CONF_HEIGHT) / 100,
+            )
+            entities += [
+                ScaleSensor(entry.title, address, coordinator, desc)
+                for desc in SENSOR_DESCRIPTIONS
+            ]
 
     def _update_unit(sensor: ScaleSensor, unit: str) -> ScaleSensor:
         if sensor._attr_device_class == SensorDeviceClass.WEIGHT:
