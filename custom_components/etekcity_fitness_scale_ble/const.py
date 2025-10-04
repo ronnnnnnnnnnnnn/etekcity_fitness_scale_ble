@@ -24,11 +24,9 @@ class ScaleModel(StrEnum):
 
 # Detection patterns for different scale models
 SCALE_DETECTION_PATTERNS = {
-    ScaleModel.ESF24: {
-        "local_name": "QN-Scale1"
-    },
+    ScaleModel.ESF24: {"local_name": "QN-Scale1"},
     ScaleModel.ESF551: {
         "local_name_pattern": "Etekcity *Fitness *Scale*",
-        "manufacturer_id": 1744
-    }
+        "manufacturer_id": 1744,
+    },
 }

@@ -611,7 +611,12 @@ class ScaleDataUpdateCoordinator:
     _birthdate: Optional[date] = None
     _height_m: Optional[float] = None
 
-    def __init__(self, hass: HomeAssistant, address: str, scale_model: ScaleModel = ScaleModel.ESF551) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        address: str,
+        scale_model: ScaleModel = ScaleModel.ESF551,
+    ) -> None:
         """Initialize the ScaleDataUpdateCoordinator.
 
         Args:
@@ -752,7 +757,7 @@ class ScaleDataUpdateCoordinator:
                         _LOGGER.warning(
                             "Body metrics requested but scale model %s does not support body metrics. "
                             "Disabling body metrics.",
-                            self._scale_model
+                            self._scale_model,
                         )
                         self.body_metrics_enabled = False
                     else:
@@ -771,7 +776,9 @@ class ScaleDataUpdateCoordinator:
                 else:
                     # Choose appropriate scale class based on model
                     if self._scale_model == ScaleModel.ESF24:
-                        _LOGGER.debug("Initializing new ESF24Scale client (experimental)")
+                        _LOGGER.debug(
+                            "Initializing new ESF24Scale client (experimental)"
+                        )
                         self._client = ESF24Scale(
                             self.address,
                             self.update_listeners,
@@ -788,7 +795,9 @@ class ScaleDataUpdateCoordinator:
                         )
                     else:
                         # Fallback to ESF551 for backward compatibility
-                        _LOGGER.debug("Unknown scale model, defaulting to ESF551Scale client")
+                        _LOGGER.debug(
+                            "Unknown scale model, defaulting to ESF551Scale client"
+                        )
                         self._client = ESF551Scale(
                             self.address,
                             self.update_listeners,

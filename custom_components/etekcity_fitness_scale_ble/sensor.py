@@ -23,7 +23,15 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_BIRTHDATE, CONF_CALC_BODY_METRICS, CONF_HEIGHT, CONF_SCALE_MODEL, CONF_SEX, DOMAIN, ScaleModel
+from .const import (
+    CONF_BIRTHDATE,
+    CONF_CALC_BODY_METRICS,
+    CONF_HEIGHT,
+    CONF_SCALE_MODEL,
+    CONF_SEX,
+    DOMAIN,
+    ScaleModel,
+)
 from .coordinator import ScaleData, ScaleDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
