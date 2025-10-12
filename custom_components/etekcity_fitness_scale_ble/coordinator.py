@@ -736,8 +736,11 @@ class ScaleDataUpdateCoordinator:
                 finally:
                     self._client = None
 
+            # Don't pass a custom scanner - let the library use HA's passive scanning
+            # Passing None allows the library to work with HA's existing BT scanner
+            scanner = None
+
             # Initialize appropriate client based on scale model
-            # Note: We don't pass a scanner backend to let the library use HA's built-in Bluetooth
             try:
                 if self.body_metrics_enabled:
                     if (
@@ -769,6 +772,7 @@ class ScaleDataUpdateCoordinator:
                             self._birthdate,
                             self._height_m,
                             self._display_unit,
+                            bleak_scanner_backend=scanner,
                         )
                 else:
                     # Choose appropriate scale class based on model
@@ -776,12 +780,11 @@ class ScaleDataUpdateCoordinator:
                         _LOGGER.debug(
                             "Initializing new ESF24Scale client (experimental)"
                         )
-                        # ESF24 may need explicit scanning mode to avoid conflicts with HA Bluetooth
                         self._client = ESF24Scale(
                             self.address,
                             self.update_listeners,
                             self._display_unit,
-                            scanning_mode=BluetoothScanningMode.ACTIVE,
+                            bleak_scanner_backend=scanner,
                         )
                     elif self._scale_model == ScaleModel.ESF551:
                         _LOGGER.debug("Initializing new ESF551Scale client")
@@ -789,6 +792,7 @@ class ScaleDataUpdateCoordinator:
                             self.address,
                             self.update_listeners,
                             self._display_unit,
+                            bleak_scanner_backend=scanner,
                         )
                     else:
                         # Fallback to ESF551 for backward compatibility
@@ -799,6 +803,7 @@ class ScaleDataUpdateCoordinator:
                             self.address,
                             self.update_listeners,
                             self._display_unit,
+                            bleak_scanner_backend=scanner,
                         )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
