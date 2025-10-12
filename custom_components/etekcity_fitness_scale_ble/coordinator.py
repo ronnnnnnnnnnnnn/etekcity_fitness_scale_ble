@@ -736,10 +736,8 @@ class ScaleDataUpdateCoordinator:
                 finally:
                     self._client = None
 
-            # Get the optimal scanner
-            scanner = await self._get_bluetooth_scanner()
-
             # Initialize appropriate client based on scale model
+            # Note: We don't pass a scanner backend to let the library use HA's built-in Bluetooth
             try:
                 if self.body_metrics_enabled:
                     if (
@@ -771,7 +769,6 @@ class ScaleDataUpdateCoordinator:
                             self._birthdate,
                             self._height_m,
                             self._display_unit,
-                            bleak_scanner_backend=scanner,
                         )
                 else:
                     # Choose appropriate scale class based on model
@@ -783,7 +780,6 @@ class ScaleDataUpdateCoordinator:
                             self.address,
                             self.update_listeners,
                             self._display_unit,
-                            bleak_scanner_backend=scanner,
                         )
                     elif self._scale_model == ScaleModel.ESF551:
                         _LOGGER.debug("Initializing new ESF551Scale client")
@@ -791,7 +787,6 @@ class ScaleDataUpdateCoordinator:
                             self.address,
                             self.update_listeners,
                             self._display_unit,
-                            bleak_scanner_backend=scanner,
                         )
                     else:
                         # Fallback to ESF551 for backward compatibility
@@ -802,7 +797,6 @@ class ScaleDataUpdateCoordinator:
                             self.address,
                             self.update_listeners,
                             self._display_unit,
-                            bleak_scanner_backend=scanner,
                         )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
