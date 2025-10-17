@@ -718,6 +718,27 @@ class ScaleDataUpdateCoordinator:
                         "Unexpected error creating Bluetooth scanner: %s", ex
                     )
                     scanner = None
+            
+            # NEW: If no proxy scanner was created but a native adapter is available, create a passive native scanner
+            if scanner is None and native:
+                try:
+                    PlatformBleakScanner = get_platform_scanner_backend_type()
+                    scanner_kwargs: dict[str, Any] = {}
+                    scanning_mode = "passive"
+                    if IS_LINUX:
+                        # Prefer passive scanning to avoid conflicts with existing active scan
+                        scanning_mode = BluetoothScanningMode.PASSIVE
+                        scanner_kwargs["bluez"] = PASSIVE_SCANNER_ARGS
+                    scanner = PlatformBleakScanner(
+                        None,
+                        None,
+                        scanning_mode,
+                        **scanner_kwargs,
+                    )
+                    _LOGGER.debug("Created fallback native passive scanner")
+                except Exception as ex:
+                    _LOGGER.warning("Failed to create fallback native scanner: %s", ex)
+                    scanner = None
 
             return scanner
         except Exception as ex:
@@ -736,9 +757,8 @@ class ScaleDataUpdateCoordinator:
                 finally:
                     self._client = None
 
-            # Don't pass a custom scanner - let the library use HA's passive scanning
-            # Passing None allows the library to work with HA's existing BT scanner
-            scanner = None
+            # Get the optimal scanner
+            scanner = await self._get_bluetooth_scanner()
 
             # Initialize appropriate client based on scale model
             try:
