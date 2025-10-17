@@ -718,7 +718,7 @@ class ScaleDataUpdateCoordinator:
                         "Unexpected error creating Bluetooth scanner: %s", ex
                     )
                     scanner = None
-            
+
             # NEW: If no proxy scanner was created but a native adapter is available, create a passive native scanner
             if scanner is None and native:
                 try:
