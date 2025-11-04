@@ -1,0 +1,51 @@
+# Service definitions for Etekcity Fitness Scale BLE integration
+
+assign_measurement:
+  name: Assign measurement
+  description: Manually assign a pending weight measurement to a specific user.
+  fields:
+    timestamp:
+      name: Timestamp
+      description: The timestamp of the pending measurement to assign (shown in the notification).
+      required: true
+      example: "2025-01-15T10:30:00"
+      selector:
+        text:
+    user_id:
+      name: User ID
+      description: The unique ID of the user to assign the measurement to.
+      required: true
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      selector:
+        text:
+
+reassign_measurement:
+  name: Reassign measurement
+  description: Reassign a user's last measurement to a different user.
+  fields:
+    from_user_id:
+      name: From User ID
+      description: The unique ID of the user to take the measurement from.
+      required: true
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      selector:
+        text:
+    to_user_id:
+      name: To User ID
+      description: The unique ID of the user to assign the measurement to.
+      required: true
+      example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+      selector:
+        text:
+
+remove_measurement:
+  name: Remove measurement
+  description: Remove a user's last measurement (revert to previous or mark unavailable).
+  fields:
+    user_id:
+      name: User ID
+      description: The unique ID of the user to remove the measurement from.
+      required: true
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      selector:
+        text:

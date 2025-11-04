@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
 import platform
 from collections.abc import Callable
-from datetime import date
 from functools import partial
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -28,13 +28,16 @@ from bluetooth_data_tools import (
 from etekcity_esf551_ble import (
     BluetoothScanningMode,
     EtekcitySmartFitnessScale,
-    EtekcitySmartFitnessScaleWithBodyMetrics,
     ScaleData,
-    Sex,
     WeightUnit,
 )
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.components import persistent_notification
+from homeassistant.helpers import entity_registry as er
+
+from .const import CONF_USER_ID, DOMAIN, get_sensor_unique_id
+from .person_detector import PersonDetector
 
 SYSTEM = platform.system()
 IS_LINUX = SYSTEM == "Linux"
@@ -596,29 +599,57 @@ class ScaleDataUpdateCoordinator:
     Coordinator to manage data updates for a scale device.
 
     This class handles the communication with the Etekcity Smart Fitness Scale
-    and coordinates updates to the Home Assistant entities.
+    and coordinates updates to the Home Assistant entities. Supports multi-user
+    detection and routing.
     """
 
     _client: Optional[EtekcitySmartFitnessScale] = None
     _display_unit: Optional[WeightUnit] = None
     _scanner_change_cb_unregister: Optional[Callable[[], None]] = None
 
-    body_metrics_enabled: bool = False
-    _sex: Optional[Sex] = None
-    _birthdate: Optional[date] = None
-    _height_m: Optional[float] = None
-
-    def __init__(self, hass: HomeAssistant, address: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        address: str,
+        user_profiles: list[dict],
+        device_name: str,
+    ) -> None:
         """Initialize the ScaleDataUpdateCoordinator.
 
         Args:
             hass: The Home Assistant instance.
             address: The Bluetooth address of the scale.
+            user_profiles: List of user profile dictionaries.
+            device_name: The device name used for entity ID construction.
         """
         self.address = address
         self._hass = hass
+        self._device_name = device_name
         self._lock = asyncio.Lock()
         self._listeners: Dict[Callable[[], None], Callable[[ScaleData], None]] = {}
+        # User-specific callback registry: user_id -> list of callbacks
+        self._user_callbacks: Dict[str, List[Callable[[ScaleData], None]]] = {}
+        self._user_profiles = user_profiles
+        # User profiles dictionary for O(1) lookup efficiency
+        self._user_profiles_by_id: Dict[str, dict] = {
+            profile[CONF_USER_ID]: profile
+            for profile in user_profiles
+            if profile.get(CONF_USER_ID) is not None
+        }
+        self._person_detector = PersonDetector(hass, device_name, DOMAIN)
+        # Pending measurements awaiting manual assignment: {timestamp: (weight_kg, raw_measurements_dict, ambiguous_user_ids)}
+        # raw_measurements_dict contains only weight and impedance (body metrics calculated on assignment)
+        self._pending_measurements: Dict[str, Tuple[float, dict, list[str]]] = {}
+        # Storage for reassignment/removal features
+        self._last_user_measurement: Dict[
+            str, dict
+        ] = {}  # user_id -> raw measurements dict
+        self._unassigned_measurements: Dict[
+            str, dict
+        ] = {}  # timestamp -> raw measurements dict
+        self._ambiguous_notifications: set[str] = (
+            set()
+        )  # active notification timestamps
 
     def set_display_unit(self, unit: WeightUnit) -> None:
         """Set the display unit for the scale.
@@ -729,39 +760,15 @@ class ScaleDataUpdateCoordinator:
             # Get the optimal scanner
             scanner = await self._get_bluetooth_scanner()
 
-            # Initialize appropriate client
+            # Initialize client (always use basic client, body metrics calculated per-user)
             try:
-                if self.body_metrics_enabled:
-                    if (
-                        self._sex is None
-                        or self._birthdate is None
-                        or self._height_m is None
-                    ):
-                        _LOGGER.error(
-                            "Body metrics enabled but required parameters are missing"
-                        )
-                        raise ValueError("Missing required body metrics parameters")
-
-                    _LOGGER.debug(
-                        "Initializing new EtekcitySmartFitnessScaleWithBodyMetrics client"
-                    )
-                    self._client = EtekcitySmartFitnessScaleWithBodyMetrics(
-                        self.address,
-                        self.update_listeners,
-                        self._sex,
-                        self._birthdate,
-                        self._height_m,
-                        self._display_unit,
-                        bleak_scanner_backend=scanner,
-                    )
-                else:
-                    _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
-                    self._client = EtekcitySmartFitnessScale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        bleak_scanner_backend=scanner,
-                    )
+                _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
+                self._client = EtekcitySmartFitnessScale(
+                    self.address,
+                    self.update_listeners,
+                    self._display_unit,
+                    bleak_scanner_backend=scanner,
+                )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")
@@ -898,9 +905,60 @@ class ScaleDataUpdateCoordinator:
         self._listeners[remove_listener] = update_callback
         return remove_listener
 
+    def add_user_listener(
+        self, user_id: str, update_callback: Callable[[ScaleData], None]
+    ) -> Callable[[], None]:
+        """Register a callback for a specific user's measurements.
+
+        Args:
+            user_id: The user ID this callback is for.
+            update_callback: Function to call when new data is received for this user.
+
+        Returns:
+            Function to call to remove the listener.
+        """
+        if user_id not in self._user_callbacks:
+            self._user_callbacks[user_id] = []
+
+        self._user_callbacks[user_id].append(update_callback)
+
+        @callback
+        def remove_listener() -> None:
+            """Remove this user-specific listener."""
+            if user_id in self._user_callbacks:
+                try:
+                    self._user_callbacks[user_id].remove(update_callback)
+                    # Clean up empty lists
+                    if not self._user_callbacks[user_id]:
+                        del self._user_callbacks[user_id]
+                except ValueError:
+                    pass  # Callback already removed
+
+        return remove_listener
+
+    def _extract_raw_measurements(self, data: ScaleData) -> dict:
+        """Extract only raw measurements (not calculated body metrics) from scale data.
+
+        Raw measurements are those that come directly from the scale hardware.
+        Body metrics are calculated and depend on user profile, so they should
+        not be stored before user assignment.
+
+        Args:
+            data: The scale data containing all measurements.
+
+        Returns:
+            Dictionary with only raw measurements (weight, impedance).
+        """
+        raw_measurements = {}
+        if "weight" in data.measurements:
+            raw_measurements["weight"] = data.measurements["weight"]
+        if "impedance" in data.measurements:
+            raw_measurements["impedance"] = data.measurements["impedance"]
+        return raw_measurements
+
     @callback
     def update_listeners(self, data: ScaleData) -> None:
-        """Update all registered listeners with improved logging.
+        """Update all registered listeners with multi-user routing.
 
         Args:
             data: The scale data to send to listeners.
@@ -918,66 +976,540 @@ class ScaleDataUpdateCoordinator:
             ", ".join(measurements),
         )
 
-        # Update all listeners
-        listener_count = len(self._listeners)
-        _LOGGER.debug("Updating %d listeners with new scale data", listener_count)
+        # Extract weight for person detection
+        weight_kg = data.measurements.get("weight")
+        if weight_kg is None:
+            _LOGGER.warning("No weight measurement in scale data, cannot route to user")
+            return
 
-        # Make a copy of listeners to avoid modification during iteration
-        for update_callback in list(self._listeners.values()):
+        # Smart detection logic: Single user auto-assign (skip detection)
+        if len(self._user_profiles) == 1:
+            user_id = self._user_profiles[0].get("user_id")
+            _LOGGER.info(
+                "Single user detected, auto-assigning measurement to user %s (weight: %.2f kg)",
+                user_id,
+                weight_kg,
+            )
+            self._route_to_user(user_id, data)
+            return
+
+        # Smart detection logic: Check if any user lacks weight history
+        # If so, skip detection and notify with all users as candidates
+        users_with_history = []
+        entity_reg = er.async_get(self._hass)
+
+        for user_profile in self._user_profiles:
+            user_id = user_profile.get("user_id")
+            if not user_id:
+                continue
+
+            # Construct unique_id for weight sensor using helper function
+            sensor_unique_id = get_sensor_unique_id(
+                self._device_name, user_id, "weight"
+            )
+
+            # Look up entity_id from unique_id via entity registry
+            sensor_entity_id = entity_reg.async_get_entity_id(
+                "sensor", DOMAIN, sensor_unique_id
+            )
+
+            if not sensor_entity_id:
+                continue
+
+            sensor_state = self._hass.states.get(sensor_entity_id)
+            if sensor_state and sensor_state.state not in ("unknown", "unavailable"):
+                users_with_history.append(user_id)
+
+        # If not all users have history, skip detection and notify all users
+        if len(users_with_history) < len(self._user_profiles):
+            _LOGGER.info(
+                "Not all users have weight history (%d/%d), skipping detection and notifying all users",
+                len(users_with_history),
+                len(self._user_profiles),
+            )
+            timestamp = datetime.now().isoformat()
+            all_user_ids = [
+                u.get("user_id") for u in self._user_profiles if u.get("user_id")
+            ]
+
+            if all_user_ids:
+                # Store only raw measurements (body metrics will be calculated on assignment)
+                raw_measurements = self._extract_raw_measurements(data)
+                self._pending_measurements[timestamp] = (
+                    weight_kg,
+                    raw_measurements,
+                    all_user_ids,
+                )
+
+                # Keep only last 10 pending measurements (FIFO cleanup)
+                if len(self._pending_measurements) > 10:
+                    oldest_timestamp = next(iter(self._pending_measurements))
+                    del self._pending_measurements[oldest_timestamp]
+                    # Clean up the notification for the oldest measurement
+                    self._ambiguous_notifications.discard(oldest_timestamp)
+                    persistent_notification.dismiss(
+                        self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
+                    )
+                    _LOGGER.debug(
+                        "Removed oldest pending measurement: %s (FIFO cleanup)",
+                        oldest_timestamp,
+                    )
+
+                self._create_ambiguous_notification(weight_kg, all_user_ids, timestamp)
+
+            self._store_unassigned_measurement(data)
+            return
+
+        # All users have history, proceed with normal detection
+        _LOGGER.debug("All users have weight history, proceeding with person detection")
+        detected_user_id, ambiguous_user_ids = self._person_detector.detect_person(
+            weight_kg, self._user_profiles
+        )
+
+        # Handle detection results
+        if detected_user_id:
+            # Single user detected - route to that user
+            self._route_to_user(detected_user_id, data)
+        elif ambiguous_user_ids:
+            # Multiple users match - store as pending and notify
+            timestamp = datetime.now().isoformat()
+            # Store only raw measurements (body metrics will be calculated on assignment)
+            raw_measurements = self._extract_raw_measurements(data)
+            self._pending_measurements[timestamp] = (
+                weight_kg,
+                raw_measurements,
+                ambiguous_user_ids,
+            )
+
+            # Keep only last 10 pending measurements (FIFO cleanup)
+            if len(self._pending_measurements) > 10:
+                oldest_timestamp = next(iter(self._pending_measurements))
+                del self._pending_measurements[oldest_timestamp]
+                # Clean up the notification for the oldest measurement
+                self._ambiguous_notifications.discard(oldest_timestamp)
+                persistent_notification.dismiss(
+                    self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
+                )
+                _LOGGER.debug(
+                    "Removed oldest pending measurement: %s (FIFO cleanup)",
+                    oldest_timestamp,
+                )
+
+            self._create_ambiguous_notification(
+                weight_kg, ambiguous_user_ids, timestamp
+            )
+            # Route to unassigned sensor
+            self._store_unassigned_measurement(data)
+        else:
+            # No user detected - could be first measurement or out of tolerance
+            _LOGGER.info(
+                "No user detected for measurement (weight: %.2f kg)",
+                weight_kg,
+            )
+
+            # If we have user profiles configured, treat this as ambiguous
+            # (helps with first-time measurements)
+            if self._user_profiles:
+                timestamp = datetime.now().isoformat()
+                # Get all user IDs as potential matches
+                all_user_ids = [
+                    u.get("user_id") for u in self._user_profiles if u.get("user_id")
+                ]
+
+                if all_user_ids:
+                    # Store only raw measurements (body metrics will be calculated on assignment)
+                    raw_measurements = self._extract_raw_measurements(data)
+                    self._pending_measurements[timestamp] = (
+                        weight_kg,
+                        raw_measurements,
+                        all_user_ids,
+                    )
+
+                    # Keep only last 10 pending measurements (FIFO cleanup)
+                    if len(self._pending_measurements) > 10:
+                        oldest_timestamp = next(iter(self._pending_measurements))
+                        del self._pending_measurements[oldest_timestamp]
+                        # Clean up the notification for the oldest measurement
+                        self._ambiguous_notifications.discard(oldest_timestamp)
+                        persistent_notification.dismiss(
+                            self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
+                        )
+                        _LOGGER.debug(
+                            "Removed oldest pending measurement: %s (FIFO cleanup)",
+                            oldest_timestamp,
+                        )
+
+                    self._create_ambiguous_notification(
+                        weight_kg, all_user_ids, timestamp
+                    )
+                    _LOGGER.info(
+                        "Created notification for unmatched measurement (could be first-time or out of tolerance)"
+                    )
+
+            # Always route to unassigned sensor
+            self._store_unassigned_measurement(data)
+
+    def _route_to_user(self, user_id: str, data: ScaleData) -> None:
+        """Route measurement to a specific user's sensors.
+
+        Args:
+            user_id: The user ID to route to.
+            data: The scale data to send.
+        """
+        # Find user profile using O(1) dictionary lookup
+        user_profile = self._user_profiles_by_id.get(user_id)
+        if not user_profile:
+            _LOGGER.error("User profile not found for user_id: %s", user_id)
+            return
+
+        # Store raw measurements for this user (for reassignment/removal)
+        weight_kg = data.measurements.get("weight")
+        impedance = data.measurements.get("impedance")
+        timestamp = datetime.now().isoformat()
+
+        if weight_kg is not None:
+            self._last_user_measurement[user_id] = {
+                "weight": weight_kg,
+                "impedance": impedance,
+                "timestamp": timestamp,
+            }
+            _LOGGER.debug(
+                "Stored measurement for user %s: weight=%.2f kg",
+                user_id,
+                weight_kg,
+            )
+
+        # Calculate body metrics if enabled for this user
+        if user_profile.get("body_metrics_enabled", False):
+            try:
+                from etekcity_esf551_ble.esf551.body_metrics import (
+                    BodyMetrics,
+                    Sex as ESFSex,
+                    _as_dictionary,
+                    _calc_age,
+                )
+                from datetime import date as dt_date
+
+                weight_kg = data.measurements.get("weight")
+                impedance = data.measurements.get("impedance")
+
+                if weight_kg and impedance:
+                    # Parse birthdate
+                    birthdate_str = user_profile.get("birthdate")
+                    if isinstance(birthdate_str, str):
+                        birthdate = dt_date.fromisoformat(birthdate_str)
+                    else:
+                        birthdate = birthdate_str
+
+                    # Parse sex
+                    sex_str = user_profile.get("sex", "Male")
+                    sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
+
+                    # Get height
+                    height_cm = user_profile.get("height", 170)
+                    height_m = height_cm / 100.0
+
+                    # Calculate body metrics
+                    age = _calc_age(birthdate)
+                    body_metrics = BodyMetrics(weight_kg, height_m, age, sex, impedance)
+                    metrics_dict = _as_dictionary(body_metrics)
+
+                    # Add body metrics to measurements
+                    data.measurements.update(metrics_dict)
+                    _LOGGER.debug(
+                        "Added body metrics for user %s: %s",
+                        user_profile.get("name", user_id),
+                        list(metrics_dict.keys()),
+                    )
+            except Exception as ex:
+                _LOGGER.error(
+                    "Error calculating body metrics for user %s: %s", user_id, ex
+                )
+
+        # Route to user-specific listeners using direct callback registry
+        for update_callback in self._user_callbacks.get(user_id, []):
             try:
                 update_callback(data)
             except Exception as ex:
-                _LOGGER.error("Error updating listener: %s", ex)
+                _LOGGER.error("Error updating listener for user %s: %s", user_id, ex)
 
-    async def enable_body_metrics(
-        self, sex: Sex, birthdate: date, height_m: float
-    ) -> None:
-        """Enable body metrics calculations.
+    def _store_unassigned_measurement(self, data: ScaleData) -> None:
+        """Store unassigned measurement in memory for later assignment.
 
         Args:
-            sex: The sex of the user.
-            birthdate: The birthdate of the user.
-            height_m: The height of the user in meters.
+            data: The scale data to store.
         """
-        if not self.body_metrics_enabled:
+        # Store raw unassigned measurement
+        weight_kg = data.measurements.get("weight")
+        impedance = data.measurements.get("impedance")
+        timestamp = datetime.now().isoformat()
+
+        if weight_kg is not None:
+            self._unassigned_measurements[timestamp] = {
+                "weight": weight_kg,
+                "impedance": impedance,
+                "timestamp": timestamp,
+            }
             _LOGGER.debug(
-                "Enabling body metrics with sex=%s, birthdate=%s, height=%f",
-                sex,
-                birthdate,
-                height_m,
+                "Stored unassigned measurement: weight=%.2f kg, timestamp=%s",
+                weight_kg,
+                timestamp,
             )
 
-            async with self._lock:
-                self.body_metrics_enabled = True
-                self._sex = sex
-                self._birthdate = birthdate
-                self._height_m = height_m
+            # Keep only last 10 unassigned measurements (FIFO cleanup)
+            if len(self._unassigned_measurements) > 10:
+                oldest_timestamp = next(iter(self._unassigned_measurements))
+                del self._unassigned_measurements[oldest_timestamp]
+                _LOGGER.debug(
+                    "Removed oldest unassigned measurement: %s", oldest_timestamp
+                )
 
-                if self._client:
-                    try:
-                        await self._async_start()
-                    except Exception as ex:
-                        _LOGGER.error(
-                            "Failed to restart client after enabling body metrics: %s",
-                            ex,
-                        )
+    def _create_ambiguous_notification(
+        self, weight_kg: float, ambiguous_user_ids: list[str], timestamp: str
+    ) -> None:
+        """Create a persistent notification for ambiguous measurements.
 
-    async def disable_body_metrics(self) -> None:
-        """Disable body metrics calculations."""
-        if self.body_metrics_enabled:
-            _LOGGER.debug("Disabling body metrics")
+        Args:
+            weight_kg: The measured weight in kg.
+            ambiguous_user_ids: List of user IDs that match the measurement.
+            timestamp: Timestamp of the measurement.
+        """
+        # Build user list with names and IDs using O(1) dictionary lookups
+        user_list_items = []
+        for user_id in ambiguous_user_ids:
+            user_profile = self._user_profiles_by_id.get(user_id)
+            if user_profile:
+                user_name = user_profile.get("name", user_id)
+                user_list_items.append(f"- {user_name} (ID: `{user_id}`)")
 
-            async with self._lock:
-                self.body_metrics_enabled = False
-                self._sex = None
-                self._birthdate = None
-                self._height_m = None
+        user_list = "\n".join(user_list_items)
 
-                if self._client:
-                    try:
-                        await self._async_start()
-                    except Exception as ex:
-                        _LOGGER.error(
-                            "Failed to restart client after disabling body metrics: %s",
-                            ex,
-                        )
+        message = (
+            f"**Weight:** {weight_kg:.2f} kg  \n"
+            f"**Timestamp:** `{timestamp}`  \n\n"
+            f"**Possible users:**\n{user_list}\n\n"
+            f"Use the service `etekcity_fitness_scale_ble.assign_measurement` with:\n"
+            f"- **timestamp:** `{timestamp}`\n"
+            f"- **user_id:** (copy from above)"
+        )
+
+        # Track this ambiguous notification
+        self._ambiguous_notifications.add(timestamp)
+
+        persistent_notification.create(
+            self._hass,
+            message,
+            title="Etekcity Scale: Ambiguous Measurement",
+            notification_id=f"etekcity_scale_ambiguous_{timestamp}",
+        )
+
+    def update_user_profiles(self, user_profiles: list[dict]) -> None:
+        """Update user profiles.
+
+        Args:
+            user_profiles: Updated list of user profile dictionaries.
+        """
+        self._user_profiles = user_profiles
+        # Rebuild dictionary for efficient lookups
+        self._user_profiles_by_id = {
+            profile[CONF_USER_ID]: profile
+            for profile in user_profiles
+            if profile.get(CONF_USER_ID) is not None
+        }
+        _LOGGER.debug("Updated user profiles, now have %d profiles", len(user_profiles))
+
+    def assign_pending_measurement(self, timestamp: str, user_id: str) -> bool:
+        """Manually assign a pending measurement to a user.
+
+        Pending measurements contain only raw scale data (weight, impedance).
+        Body metrics are calculated fresh based on the assigned user's profile.
+
+        Args:
+            timestamp: ISO timestamp of the pending measurement.
+            user_id: The user ID to assign the measurement to.
+
+        Returns:
+            True if assignment succeeded, False otherwise.
+        """
+        if timestamp not in self._pending_measurements:
+            _LOGGER.warning("No pending measurement found for timestamp: %s", timestamp)
+            return False
+
+        weight_kg, measurements, _ = self._pending_measurements.pop(timestamp)
+        _LOGGER.info(
+            "Manually assigned measurement from %s to user %s (weight: %.2f kg)",
+            timestamp,
+            user_id,
+            weight_kg,
+        )
+
+        # Create a ScaleData object with raw measurements and route to the user
+        # Body metrics will be calculated by _route_to_user() based on the user's profile
+        from etekcity_esf551_ble import ScaleData
+
+        scale_data = ScaleData(measurements=measurements)
+        self._route_to_user(user_id, scale_data)
+
+        # Clean up tracking structures
+        self._ambiguous_notifications.discard(timestamp)
+        self._unassigned_measurements.pop(timestamp, None)
+
+        # Dismiss the notification
+        persistent_notification.dismiss(
+            self._hass,
+            notification_id=f"etekcity_scale_ambiguous_{timestamp}",
+        )
+
+        return True
+
+    def reassign_user_measurement(self, from_user_id: str, to_user_id: str) -> bool:
+        """Reassign a user's last measurement to a different user.
+
+        This works both for the current session (using in-memory data) and after
+        a restart (by retrieving data from sensor state).
+
+        Args:
+            from_user_id: The user ID to take the measurement from.
+            to_user_id: The user ID to assign the measurement to.
+
+        Returns:
+            True if reassignment succeeded, False otherwise.
+        """
+        # Get measurement from source user (try memory first, then sensor state)
+        measurements = self._last_user_measurement.get(from_user_id)
+
+        if not measurements:
+            # Try to get from sensor states using Entity Registry
+            # We'll retrieve only RAW measurements (weight, impedance)
+            # Body metrics are calculated and should be recalculated for target user
+            entity_reg = er.async_get(self._hass)
+            measurements = {}
+
+            # Only retrieve raw scale measurements (not calculated body metrics)
+            sensor_keys = ["weight", "impedance"]
+
+            # Retrieve each sensor's state
+            for sensor_key in sensor_keys:
+                # Construct the unique_id for this sensor using helper function
+                sensor_unique_id = get_sensor_unique_id(
+                    self._device_name, from_user_id, sensor_key
+                )
+
+                # Look up the entity_id
+                sensor_entity_id = entity_reg.async_get_entity_id(
+                    "sensor", DOMAIN, sensor_unique_id
+                )
+
+                if sensor_entity_id:
+                    sensor_state = self._hass.states.get(sensor_entity_id)
+                    if sensor_state and sensor_state.state not in (
+                        "unknown",
+                        "unavailable",
+                    ):
+                        try:
+                            # Parse the sensor value
+                            value = float(sensor_state.state)
+                            measurements[sensor_key] = value
+                            _LOGGER.debug(
+                                "Retrieved %s from sensor state for user %s: %s",
+                                sensor_key,
+                                from_user_id,
+                                value,
+                            )
+                        except (ValueError, TypeError):
+                            # Skip sensors that can't be parsed
+                            pass
+
+            # We need at least weight to proceed
+            if "weight" not in measurements:
+                _LOGGER.warning(
+                    "Cannot reassign from user %s: weight sensor not found or unavailable",
+                    from_user_id,
+                )
+                return False
+
+            _LOGGER.info(
+                "Retrieved %d raw measurements from sensor states for user %s",
+                len(measurements),
+                from_user_id,
+            )
+        else:
+            # Even if we have measurements in memory, only use raw measurements
+            # Filter to only weight and impedance (body metrics will be recalculated)
+            raw_measurements = {}
+            if "weight" in measurements:
+                raw_measurements["weight"] = measurements["weight"]
+            if "impedance" in measurements:
+                raw_measurements["impedance"] = measurements["impedance"]
+            measurements = raw_measurements
+
+            if "weight" not in measurements:
+                _LOGGER.warning(
+                    "Cannot reassign from user %s: no weight measurement available",
+                    from_user_id,
+                )
+                return False
+
+        _LOGGER.info(
+            "Reassigning raw measurement from user %s to user %s (weight: %.2f kg%s)",
+            from_user_id,
+            to_user_id,
+            measurements.get("weight"),
+            f", impedance: {measurements.get('impedance')} Ω"
+            if "impedance" in measurements
+            else "",
+        )
+
+        # Create ScaleData with only raw measurements
+        # Body metrics will be recalculated by _route_to_user() based on target user's profile
+        from etekcity_esf551_ble import ScaleData
+
+        scale_data = ScaleData(measurements=measurements)
+
+        # Route to target user (this will store in _last_user_measurement for target)
+        self._route_to_user(to_user_id, scale_data)
+
+        # Signal source user's sensors to revert to previous using direct callback registry
+        revert_data = ScaleData(measurements={"_revert_": True})
+        for update_callback in self._user_callbacks.get(from_user_id, []):
+            try:
+                update_callback(revert_data)
+            except Exception as ex:
+                _LOGGER.error(
+                    "Error reverting sensor for user %s: %s", from_user_id, ex
+                )
+
+        # Clear source user's measurement from tracking to prevent stale data
+        self._last_user_measurement.pop(from_user_id, None)
+        _LOGGER.debug(
+            "Cleared measurement tracking for source user %s after reassignment",
+            from_user_id,
+        )
+
+        return True
+
+    def remove_user_measurement(self, user_id: str) -> bool:
+        """Remove a user's last measurement (revert to previous or unavailable).
+
+        Args:
+            user_id: The user ID to remove the measurement from.
+
+        Returns:
+            True if removal succeeded, False otherwise.
+        """
+        _LOGGER.info("Removing last measurement for user %s", user_id)
+
+        # Remove from tracking (if present)
+        self._last_user_measurement.pop(user_id, None)
+
+        # Signal user's sensors to revert using direct callback registry
+        from etekcity_esf551_ble import ScaleData
+
+        revert_data = ScaleData(measurements={"_revert_": True})
+        for update_callback in self._user_callbacks.get(user_id, []):
+            try:
+                update_callback(revert_data)
+            except Exception as ex:
+                _LOGGER.error("Error reverting sensor for user %s: %s", user_id, ex)
+
+        return True

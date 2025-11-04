@@ -43,13 +43,127 @@
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "unknown": "[%key:common::config_flow::error::unknown%]"
+      "unknown": "[%key:common::config_flow::error::unknown%]",
+      "empty_user_name": "User name cannot be empty. Please provide a valid name."
     },
     "abort": {
       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function.",
+      "user_id_generation_failed": "Failed to generate unique user ID. This is extremely rare. Please try again.",
+      "invalid_user_name": "Invalid user name provided. Please try again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage Scale Configuration",
+        "menu_options": {
+          "add_user": "Add User Profile",
+          "edit_user": "Edit User Profile",
+          "remove_user": "Remove User Profile",
+          "scale_settings": "Scale Settings"
+        }
+      },
+      "add_user": {
+        "title": "Add User Profile",
+        "description": "Create a new user profile for the scale",
+        "data": {
+          "user_name": "User Name",
+          "person_entity": "Person Entity (optional)",
+          "body_metrics_enabled": "Enable body composition metrics"
+        }
+      },
+      "add_user_body_metrics": {
+        "title": "Body Composition Settings",
+        "description": "Fill in your sex, date of birth and height to calculate body composition metrics",
+        "data": {
+          "sex": "Sex",
+          "height": "Height",
+          "birthdate": "Date of Birth"
+        }
+      },
+      "edit_user": {
+        "title": "Edit User Profile",
+        "description": "Select a user profile to edit",
+        "data": {
+          "user_id": "User to Edit"
+        }
+      },
+      "edit_user_details": {
+        "title": "Edit User Details",
+        "description": "Update user profile settings",
+        "data": {
+          "user_name": "User Name",
+          "person_entity": "Person Entity (optional)",
+          "body_metrics_enabled": "Enable body composition metrics"
+        }
+      },
+      "edit_user_body_metrics": {
+        "title": "Edit Body Composition Settings",
+        "description": "Update your sex, date of birth and height for body composition calculations",
+        "data": {
+          "sex": "Sex",
+          "height": "Height",
+          "birthdate": "Date of Birth"
+        }
+      },
+      "remove_user": {
+        "title": "Remove User Profile",
+        "description": "Select a user profile to remove. Warning: This will remove all measurements for this user.",
+        "data": {
+          "user_id": "User to Remove"
+        }
+      },
+      "scale_settings": {
+        "title": "Scale Settings",
+        "description": "Configure scale display unit",
+        "data": {
+          "scale_display_unit": "Scale Display Unit"
+        }
+      }
+    }
+  },
+  "services": {
+    "assign_measurement": {
+      "name": "Assign measurement",
+      "description": "Manually assign a pending weight measurement to a specific user when automatic detection is ambiguous.",
+      "fields": {
+        "timestamp": {
+          "name": "Timestamp",
+          "description": "The timestamp of the pending measurement to assign (shown in the notification)."
+        },
+        "user_id": {
+          "name": "User ID",
+          "description": "The unique ID of the user to assign the measurement to."
+        }
+      }
+    },
+    "reassign_measurement": {
+      "name": "Reassign measurement",
+      "description": "Reassign a user's last measurement to a different user.",
+      "fields": {
+        "from_user_id": {
+          "name": "From User ID",
+          "description": "The unique ID of the user to take the measurement from."
+        },
+        "to_user_id": {
+          "name": "To User ID",
+          "description": "The unique ID of the user to assign the measurement to."
+        }
+      }
+    },
+    "remove_measurement": {
+      "name": "Remove measurement",
+      "description": "Remove a user's last measurement (revert to previous or mark unavailable).",
+      "fields": {
+        "user_id": {
+          "name": "User ID",
+          "description": "The unique ID of the user to remove the measurement from."
+        }
+      }
     }
   }
 }
