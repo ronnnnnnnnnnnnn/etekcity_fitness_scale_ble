@@ -128,7 +128,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Update the entry
         hass.config_entries.async_update_entry(entry, data=new_data, version=2)
-        _LOGGER.info("Migration to version 2 completed successfully")
+        _LOGGER.info("Migration of config entryto version 2 completed successfully")
 
         # Create a persistent notification to inform the user about the upgrade
         from homeassistant.components import persistent_notification
@@ -191,6 +191,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator_found = False
         for coord in hass.data[DOMAIN].values():
             if isinstance(coord, ScaleDataUpdateCoordinator):
+                # Validate user exists
+                user_profiles = coord.get_user_profiles()
+                user_ids = [profile.get(CONF_USER_ID) for profile in user_profiles if profile.get(CONF_USER_ID)]
+                if user_id not in user_ids:
+                    raise HomeAssistantError(f"User {user_id} not found in user profiles")
+
                 success = coord.assign_pending_measurement(timestamp, user_id)
                 if success:
                     _LOGGER.info(
@@ -206,7 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     raise HomeAssistantError(
                         f"Failed to assign measurement {timestamp} to user {user_id}. "
-                        f"Check that the timestamp exists in pending measurements and the user_id is valid."
+                        f"Check that the timestamp exists in pending measurements."
                     )
                 coordinator_found = True
                 break
@@ -234,6 +240,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator_found = False
         for coord in hass.data[DOMAIN].values():
             if isinstance(coord, ScaleDataUpdateCoordinator):
+                # Validate users exist
+                user_profiles = coord.get_user_profiles()
+                user_ids = [profile.get(CONF_USER_ID) for profile in user_profiles if profile.get(CONF_USER_ID)]
+                if from_user_id not in user_ids:
+                    raise HomeAssistantError(f"Source user {from_user_id} not found in user profiles")
+                if to_user_id not in user_ids:
+                    raise HomeAssistantError(f"Target user {to_user_id} not found in user profiles")
+
                 success = coord.reassign_user_measurement(from_user_id, to_user_id)
                 if success:
                     _LOGGER.info(
@@ -249,7 +263,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     raise HomeAssistantError(
                         f"Failed to reassign measurement from user {from_user_id} to user {to_user_id}. "
-                        f"Check that both user IDs are valid and the source user has a recent measurement."
+                        f"Check that the source user has a recent measurement."
                     )
                 coordinator_found = True
                 break
@@ -275,6 +289,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator_found = False
         for coord in hass.data[DOMAIN].values():
             if isinstance(coord, ScaleDataUpdateCoordinator):
+                # Validate user exists
+                user_profiles = coord.get_user_profiles()
+                user_ids = [profile.get(CONF_USER_ID) for profile in user_profiles if profile.get(CONF_USER_ID)]
+                if user_id not in user_ids:
+                    raise HomeAssistantError(f"User {user_id} not found in user profiles")
+
                 success = coord.remove_user_measurement(user_id)
                 if success:
                     _LOGGER.info(
@@ -288,7 +308,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     raise HomeAssistantError(
                         f"Failed to remove measurement for user {user_id}. "
-                        f"Check that the user_id is valid and has a recent measurement to remove."
+                        f"Check that the user has a recent measurement to remove."
                     )
                 coordinator_found = True
                 break

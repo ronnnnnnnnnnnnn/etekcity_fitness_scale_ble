@@ -11,13 +11,14 @@ from homeassistant import config_entries
 from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
+    SensorEntity,
     SensorEntityDescription,
     SensorExtraStoredData,
     SensorStateClass,
     async_update_suggested_units,
 )
-from homeassistant.const import CONF_UNIT_SYSTEM, UnitOfMass
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_UNIT_SYSTEM, EntityCategory, UnitOfMass
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -142,6 +143,22 @@ SENSOR_DESCRIPTIONS = [
     ),
 ]
 
+# Diagnostic sensor descriptions
+DIAGNOSTIC_SENSOR_DESCRIPTIONS = [
+    SensorEntityDescription(
+        key="user_directory",
+        name="User Directory",
+        icon="mdi:account-multiple",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="pending_measurements",
+        name="Pending Measurements",
+        icon="mdi:clipboard-list",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -257,9 +274,17 @@ async def async_setup_entry(
             CONF_SCALE_DISPLAY_UNIT, UnitOfMass.KILOGRAMS
         )
 
+        # Add diagnostic sensors for v2 (multi-user) only
+        entities.extend(
+            [
+                ScaleUserDirectorySensor(entry.title, address, coordinator),
+                ScalePendingMeasurementsSensor(entry.title, address, coordinator),
+            ]
+        )
+
     # Update suggested units for weight sensors
     def _update_unit(sensor: ScaleSensor, unit: str) -> ScaleSensor:
-        if sensor._attr_device_class == SensorDeviceClass.WEIGHT:
+        if getattr(sensor, "_attr_device_class", None) == SensorDeviceClass.WEIGHT:
             sensor._attr_suggested_unit_of_measurement = unit
         return sensor
 
@@ -335,7 +360,7 @@ class ScaleSensor(RestoreSensor):
         # v1 compatibility - register standard listener
         # Subclasses (v2) override this method and register user-specific listeners
         self.async_on_remove(self._coordinator.add_listener(self.handle_update))
-        _LOGGER.info("Sensor added to Home Assistant: %s", self.entity_id)
+        _LOGGER.debug("Sensor added to Home Assistant: %s", self.entity_id)
 
     async def async_restore_data(self) -> bool:
         """Restore last state from storage."""
@@ -633,7 +658,7 @@ class ScaleUserSensor(ScaleSensor):
         self.async_on_remove(
             self._coordinator.add_user_listener(self._user_id, self.handle_update)
         )
-        _LOGGER.info("User sensor added to Home Assistant: %s", self.entity_id)
+        _LOGGER.debug("User sensor added to Home Assistant: %s", self.entity_id)
 
 
 class ScaleUserWeightSensor(ScaleUserSensor):
@@ -752,3 +777,141 @@ class ScaleUserWeightSensor(ScaleUserSensor):
         return ScaleWeightSensorExtraStoredData.from_dict(
             restored_last_extra_data.as_dict()
         )
+
+
+class ScaleUserDirectorySensor(SensorEntity):
+    """Diagnostic sensor that lists all users with their IDs."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        name: str,
+        address: str,
+        coordinator: ScaleDataUpdateCoordinator,
+    ) -> None:
+        """Initialize the user directory sensor.
+
+        Args:
+            name: The name of the sensor.
+            address: The Bluetooth address of the scale.
+            coordinator: The coordinator instance.
+        """
+        self.entity_description = DIAGNOSTIC_SENSOR_DESCRIPTIONS[0]
+        self._attr_unique_id = f"{name}_user_directory"
+        self._attr_device_info = DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, address)},
+            name=name,
+            manufacturer="Etekcity",
+        )
+        self._coordinator = coordinator
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        # Update immediately when added
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return the count of users."""
+        return len(self._coordinator.get_user_profiles())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return user directory as attributes."""
+        users = []
+        for profile in self._coordinator.get_user_profiles():
+            user_data = {
+                "user_id": profile.get(CONF_USER_ID, ""),
+                "name": profile.get(CONF_USER_NAME, ""),
+                "has_body_metrics": profile.get(CONF_BODY_METRICS_ENABLED, False),
+            }
+            users.append(user_data)
+
+        return {"users": users}
+
+
+class ScalePendingMeasurementsSensor(SensorEntity):
+    """Diagnostic sensor that lists pending (unassigned) measurements."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        name: str,
+        address: str,
+        coordinator: ScaleDataUpdateCoordinator,
+    ) -> None:
+        """Initialize the pending measurements sensor.
+
+        Args:
+            name: The name of the sensor.
+            address: The Bluetooth address of the scale.
+            coordinator: The coordinator instance.
+        """
+        self.entity_description = DIAGNOSTIC_SENSOR_DESCRIPTIONS[1]
+        self._attr_unique_id = f"{name}_pending_measurements"
+        self._attr_device_info = DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, address)},
+            name=name,
+            manufacturer="Etekcity",
+        )
+        self._coordinator = coordinator
+        self._remove_listener = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+
+        # Register callback for updates
+        self._remove_listener = self._coordinator.add_listener(
+            self._handle_coordinator_update
+        )
+
+        # Update immediately when added
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """When entity will be removed from hass."""
+        # Unregister callback
+        if self._remove_listener:
+            self._remove_listener()
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_coordinator_update(self, data: ScaleData) -> None:
+        """Handle coordinator updates."""
+        # Update state when coordinator data changes (new measurements)
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return the count of pending measurements."""
+        return len(self._coordinator.get_pending_measurements())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return pending measurements as attributes."""
+        pending_data = []
+        for timestamp, (
+            weight_kg,
+            raw_measurements,
+            candidate_ids,
+        ) in self._coordinator.get_pending_measurements().items():
+            measurement = {
+                "timestamp": timestamp,
+                "weight_kg": weight_kg,
+            }
+            # Add impedance if available
+            if "impedance" in raw_measurements:
+                measurement["impedance"] = raw_measurements["impedance"]
+
+            pending_data.append(measurement)
+
+        # Sort by timestamp (most recent first)
+        pending_data.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        return {"pending": pending_data}

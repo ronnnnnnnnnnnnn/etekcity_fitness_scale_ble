@@ -127,14 +127,14 @@ class PersonDetector:
 
         # Return results based on number of matches
         if len(matching_users) == 1:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Detected person: %s (weight: %.2f kg)",
                 matching_users[0],
                 weight_kg,
             )
             return (matching_users[0], [])
         elif len(matching_users) > 1:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Ambiguous detection: %d users match (weight: %.2f kg): %s",
                 len(matching_users),
                 weight_kg,
@@ -142,7 +142,7 @@ class PersonDetector:
             )
             return (None, matching_users)
         else:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "No matching user found for weight: %.2f kg",
                 weight_kg,
             )

@@ -96,16 +96,16 @@ class BleakScannerESPHome(BaseBleakScanner):
         self._scanning = False
 
         # Per-client tracking
-        self._client_info: Dict[APIClient, Optional[DeviceInfo]] = {
+        self._client_info: dict[APIClient, Optional[DeviceInfo]] = {
             client: None for client in self._clients
         }
-        self._client_features: Dict[APIClient, int] = {
+        self._client_features: dict[APIClient, int] = {
             client: 0 for client in self._clients
         }
-        self._client_unsubscribers: Dict[APIClient, Optional[Callable[[], None]]] = {
+        self._client_unsubscribers: dict[APIClient, Optional[Callable[[], None]]] = {
             client: None for client in self._clients
         }
-        self._active_clients: Dict[APIClient, Dict[str, Any]] = {}
+        self._active_clients: dict[APIClient, dict[str, Any]] = {}
 
     async def start(self) -> None:
         """Start scanning for devices with enhanced error handling."""
@@ -575,9 +575,9 @@ class BleakScannerHybrid(BaseBleakScanner):
                 )
 
     @property
-    def seen_devices(self) -> Dict[str, Tuple[BLEDevice, AdvertisementData]]:
+    def seen_devices(self) -> dict[str, Tuple[BLEDevice, AdvertisementData]]:
         """Get the dictionary of seen devices."""
-        seen: Dict[str, Tuple[BLEDevice, AdvertisementData]] = {}
+        seen: dict[str, Tuple[BLEDevice, AdvertisementData]] = {}
 
         for scanner in self._scanners:
             seen |= scanner.seen_devices
@@ -586,7 +586,7 @@ class BleakScannerHybrid(BaseBleakScanner):
 
     @seen_devices.setter
     def seen_devices(
-        self, value: Dict[str, Tuple[BLEDevice, AdvertisementData]]
+        self, value: dict[str, Tuple[BLEDevice, AdvertisementData]]
     ) -> None:
         """Set the dictionary of seen devices."""
         # This is intentionally a no-op as we don't want to override
@@ -602,6 +602,10 @@ class ScaleDataUpdateCoordinator:
     and coordinates updates to the Home Assistant entities. Supports multi-user
     detection and routing.
     """
+
+    # Class constants
+    MAX_PENDING_MEASUREMENTS = 10  # Maximum number of pending (ambiguous) measurements to track
+    MAX_UNASSIGNED_MEASUREMENTS = 10  # Maximum number of unassigned measurements to track
 
     _client: Optional[EtekcitySmartFitnessScale] = None
     _display_unit: Optional[WeightUnit] = None
@@ -626,12 +630,12 @@ class ScaleDataUpdateCoordinator:
         self._hass = hass
         self._device_name = device_name
         self._lock = asyncio.Lock()
-        self._listeners: Dict[Callable[[], None], Callable[[ScaleData], None]] = {}
+        self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
         # User-specific callback registry: user_id -> list of callbacks
-        self._user_callbacks: Dict[str, List[Callable[[ScaleData], None]]] = {}
+        self._user_callbacks: dict[str, List[Callable[[ScaleData], None]]] = {}
         self._user_profiles = user_profiles
         # User profiles dictionary for O(1) lookup efficiency
-        self._user_profiles_by_id: Dict[str, dict] = {
+        self._user_profiles_by_id: dict[str, dict] = {
             profile[CONF_USER_ID]: profile
             for profile in user_profiles
             if profile.get(CONF_USER_ID) is not None
@@ -639,12 +643,12 @@ class ScaleDataUpdateCoordinator:
         self._person_detector = PersonDetector(hass, device_name, DOMAIN)
         # Pending measurements awaiting manual assignment: {timestamp: (weight_kg, raw_measurements_dict, ambiguous_user_ids)}
         # raw_measurements_dict contains only weight and impedance (body metrics calculated on assignment)
-        self._pending_measurements: Dict[str, Tuple[float, dict, list[str]]] = {}
+        self._pending_measurements: dict[str, Tuple[float, dict, list[str]]] = {}
         # Storage for reassignment/removal features
-        self._last_user_measurement: Dict[
+        self._last_user_measurement: dict[
             str, dict
         ] = {}  # user_id -> raw measurements dict
-        self._unassigned_measurements: Dict[
+        self._unassigned_measurements: dict[
             str, dict
         ] = {}  # timestamp -> raw measurements dict
         self._ambiguous_notifications: set[str] = (
@@ -981,9 +985,7 @@ class ScaleDataUpdateCoordinator:
 
     def _cleanup_old_pending_measurements(self) -> None:
         """Clean up oldest pending measurements when limit is exceeded (FIFO)."""
-        MAX_PENDING = 10
-
-        if len(self._pending_measurements) > MAX_PENDING:
+        if len(self._pending_measurements) > self.MAX_PENDING_MEASUREMENTS:
             oldest_timestamp = next(iter(self._pending_measurements))
             del self._pending_measurements[oldest_timestamp]
 
@@ -996,8 +998,29 @@ class ScaleDataUpdateCoordinator:
             _LOGGER.debug(
                 "Removed oldest pending measurement: %s (FIFO cleanup, max=%d)",
                 oldest_timestamp,
-                MAX_PENDING,
+                self.MAX_PENDING_MEASUREMENTS,
             )
+
+            # Note: Don't call _notify_diagnostic_sensors() here as this method is always
+            # called right before adding a new pending measurement (which will trigger notification)
+
+    def _notify_diagnostic_sensors(self) -> None:
+        """Notify diagnostic sensors about state changes (e.g., pending measurements updated).
+
+        This is used to trigger updates to diagnostic sensors that display coordinator
+        state (like pending measurements) rather than scale measurement data.
+        """
+        from etekcity_esf551_ble import ScaleData as ESFScaleData
+
+        # Create empty scale data to trigger sensor state updates
+        empty_data = ESFScaleData(measurements={})
+
+        # Notify all general listeners (includes diagnostic sensors)
+        for listener_callback in self._listeners.values():
+            try:
+                listener_callback(empty_data)
+            except Exception as ex:
+                _LOGGER.error("Error notifying listener: %s", ex)
 
     @callback
     def update_listeners(self, data: ScaleData) -> None:
@@ -1038,7 +1061,7 @@ class ScaleDataUpdateCoordinator:
         # Smart detection logic: Single user auto-assign (skip detection)
         if len(self._user_profiles) == 1:
             user_id = self._user_profiles[0].get("user_id")
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Single user detected, auto-assigning measurement to user %s (weight: %.2f kg)",
                 user_id,
                 weight_kg,
@@ -1075,7 +1098,7 @@ class ScaleDataUpdateCoordinator:
 
         # If not all users have history, skip detection and notify all users
         if len(users_with_history) < len(self._user_profiles):
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Not all users have weight history (%d/%d), skipping detection and notifying all users",
                 len(users_with_history),
                 len(self._user_profiles),
@@ -1098,8 +1121,11 @@ class ScaleDataUpdateCoordinator:
                 self._cleanup_old_pending_measurements()
 
                 self._create_ambiguous_notification(
-                    weight_kg, all_user_ids, timestamp, impedance
+                    weight_kg, impedance, all_user_ids, timestamp
                 )
+
+                # Notify diagnostic sensors about pending measurements update
+                self._notify_diagnostic_sensors()
 
             self._store_unassigned_measurement(data)
             return
@@ -1129,13 +1155,17 @@ class ScaleDataUpdateCoordinator:
             self._cleanup_old_pending_measurements()
 
             self._create_ambiguous_notification(
-                weight_kg, ambiguous_user_ids, timestamp, impedance
+                weight_kg, impedance, ambiguous_user_ids, timestamp
             )
+
+            # Notify diagnostic sensors about pending measurements update
+            self._notify_diagnostic_sensors()
+
             # Route to unassigned sensor
             self._store_unassigned_measurement(data)
         else:
             # No user detected - could be first measurement or out of tolerance
-            _LOGGER.info(
+            _LOGGER.debug(
                 "No user detected for measurement (weight: %.2f kg)",
                 weight_kg,
             )
@@ -1162,9 +1192,13 @@ class ScaleDataUpdateCoordinator:
                     self._cleanup_old_pending_measurements()
 
                     self._create_ambiguous_notification(
-                        weight_kg, all_user_ids, timestamp, impedance
+                        weight_kg, impedance, all_user_ids, timestamp
                     )
-                    _LOGGER.info(
+
+                    # Notify diagnostic sensors about pending measurements update
+                    self._notify_diagnostic_sensors()
+
+                    _LOGGER.debug(
                         "Created notification for unmatched measurement (could be first-time or out of tolerance)"
                     )
 
@@ -1317,20 +1351,22 @@ class ScaleDataUpdateCoordinator:
                 timestamp,
             )
 
-            # Keep only last 10 unassigned measurements (FIFO cleanup)
-            if len(self._unassigned_measurements) > 10:
+            # Keep only last N unassigned measurements (FIFO cleanup)
+            if len(self._unassigned_measurements) > self.MAX_UNASSIGNED_MEASUREMENTS:
                 oldest_timestamp = next(iter(self._unassigned_measurements))
                 del self._unassigned_measurements[oldest_timestamp]
                 _LOGGER.debug(
-                    "Removed oldest unassigned measurement: %s", oldest_timestamp
+                    "Removed oldest unassigned measurement: %s (FIFO cleanup, max=%d)",
+                    oldest_timestamp,
+                    self.MAX_UNASSIGNED_MEASUREMENTS,
                 )
 
     def _create_ambiguous_notification(
         self,
         weight_kg: float,
+        impedance: float | None,
         ambiguous_user_ids: list[str],
         timestamp: str,
-        impedance: float | None = None,
     ) -> None:
         """Create an enhanced persistent notification for ambiguous measurements.
 
@@ -1398,7 +1434,7 @@ class ScaleDataUpdateCoordinator:
                 auto_assign_user_id = matching_users[0][0]
                 auto_assign_user_name = matching_users[0][2]
                 weight_diff = matching_users[0][1]
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Single candidate after filtering, auto-assigning to %s (weight diff: ±%.2f kg)",
                     auto_assign_user_name,
                     weight_diff,
@@ -1406,7 +1442,7 @@ class ScaleDataUpdateCoordinator:
             else:
                 auto_assign_user_id = no_history_users[0][0]
                 auto_assign_user_name = no_history_users[0][1]
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Single candidate with no history, auto-assigning to %s",
                     auto_assign_user_name,
                 )
@@ -1488,20 +1524,22 @@ class ScaleDataUpdateCoordinator:
             notification_id=f"etekcity_scale_ambiguous_{timestamp}",
         )
 
-    def update_user_profiles(self, user_profiles: list[dict]) -> None:
-        """Update user profiles.
 
-        Args:
-            user_profiles: Updated list of user profile dictionaries.
+    def get_user_profiles(self) -> list[dict]:
+        """Get all user profiles.
+
+        Returns:
+            List of user profile dictionaries.
         """
-        self._user_profiles = user_profiles
-        # Rebuild dictionary for efficient lookups
-        self._user_profiles_by_id = {
-            profile[CONF_USER_ID]: profile
-            for profile in user_profiles
-            if profile.get(CONF_USER_ID) is not None
-        }
-        _LOGGER.debug("Updated user profiles, now have %d profiles", len(user_profiles))
+        return self._user_profiles
+
+    def get_pending_measurements(self) -> dict[str, Tuple[float, dict, list[str]]]:
+        """Get all pending measurements.
+
+        Returns:
+            Dictionary mapping timestamp to (weight_kg, raw_measurements_dict, candidate_user_ids).
+        """
+        return self._pending_measurements
 
     def assign_pending_measurement(self, timestamp: str, user_id: str) -> bool:
         """Manually assign a pending measurement to a user.
@@ -1516,12 +1554,17 @@ class ScaleDataUpdateCoordinator:
         Returns:
             True if assignment succeeded, False otherwise.
         """
+        # Validate user_id exists
+        if user_id not in self._user_profiles_by_id:
+            _LOGGER.error("User %s not found in user profiles", user_id)
+            return False
+
         if timestamp not in self._pending_measurements:
             _LOGGER.warning("No pending measurement found for timestamp: %s", timestamp)
             return False
 
         weight_kg, measurements, _ = self._pending_measurements.pop(timestamp)
-        _LOGGER.info(
+        _LOGGER.debug(
             "Manually assigned measurement from %s to user %s (weight: %.2f kg)",
             timestamp,
             user_id,
@@ -1545,6 +1588,9 @@ class ScaleDataUpdateCoordinator:
             notification_id=f"etekcity_scale_ambiguous_{timestamp}",
         )
 
+        # Notify diagnostic sensors about pending measurements update
+        self._notify_diagnostic_sensors()
+
         return True
 
     def reassign_user_measurement(self, from_user_id: str, to_user_id: str) -> bool:
@@ -1560,6 +1606,10 @@ class ScaleDataUpdateCoordinator:
         Returns:
             True if reassignment succeeded, False otherwise.
         """
+        # Validate target user exists
+        if to_user_id not in self._user_profiles_by_id:
+            _LOGGER.error("Target user %s not found in user profiles", to_user_id)
+            return False
         # Get measurement from source user (try memory first, then sensor state)
         measurements = self._last_user_measurement.get(from_user_id)
 
@@ -1613,7 +1663,7 @@ class ScaleDataUpdateCoordinator:
                 )
                 return False
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Retrieved %d raw measurements from sensor states for user %s",
                 len(measurements),
                 from_user_id,
@@ -1635,7 +1685,12 @@ class ScaleDataUpdateCoordinator:
                 )
                 return False
 
-        _LOGGER.info(
+        # Validate target user exists
+        if to_user_id not in self._user_profiles_by_id:
+            _LOGGER.error("Target user %s not found in user profiles", to_user_id)
+            return False
+
+        _LOGGER.debug(
             "Reassigning raw measurement from user %s to user %s (weight: %.2f kg%s)",
             from_user_id,
             to_user_id,
@@ -1682,7 +1737,7 @@ class ScaleDataUpdateCoordinator:
         Returns:
             True if removal succeeded, False otherwise.
         """
-        _LOGGER.info("Removing last measurement for user %s", user_id)
+        _LOGGER.debug("Removing last measurement for user %s", user_id)
 
         # Remove from tracking (if present)
         self._last_user_measurement.pop(user_id, None)
