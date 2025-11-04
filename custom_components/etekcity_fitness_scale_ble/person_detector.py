@@ -32,6 +32,8 @@ class PersonDetector:
         self.hass = hass
         self._device_name = device_name
         self._domain = domain
+        # Cache entity registry for performance (avoid lookup on every detection)
+        self._entity_reg = er.async_get(hass)
 
     def detect_person(
         self, weight_kg: float, user_profiles: list[dict]
@@ -57,9 +59,6 @@ class PersonDetector:
 
         matching_users = []
 
-        # Get entity registry for lookups
-        entity_reg = er.async_get(self.hass)
-
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
             if not user_id:
@@ -71,7 +70,7 @@ class PersonDetector:
             )
 
             # Look up entity_id from unique_id via entity registry
-            sensor_entity_id = entity_reg.async_get_entity_id(
+            sensor_entity_id = self._entity_reg.async_get_entity_id(
                 "sensor", self._domain, sensor_unique_id
             )
 

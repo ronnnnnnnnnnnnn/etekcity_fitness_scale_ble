@@ -607,9 +607,6 @@ class ScaleDataUpdateCoordinator:
     MAX_PENDING_MEASUREMENTS = (
         10  # Maximum number of pending (ambiguous) measurements to track
     )
-    MAX_UNASSIGNED_MEASUREMENTS = (
-        10  # Maximum number of unassigned measurements to track
-    )
 
     _client: EtekcitySmartFitnessScale | None = None
     _display_unit: WeightUnit | None = None
@@ -640,15 +637,30 @@ class ScaleDataUpdateCoordinator:
         self._user_profiles = user_profiles
         # User profiles dictionary for O(1) lookup efficiency
         self._user_profiles_by_id: dict[str, dict] = {}
+        v1_legacy_count = 0  # Track number of v1 legacy users (empty string user_id)
+
         for profile in user_profiles:
             user_id = profile.get(CONF_USER_ID)
             if user_id is not None:
                 self._user_profiles_by_id[user_id] = profile
+                # Count v1 legacy users (empty string reserved for v1 compatibility)
+                if user_id == "":
+                    v1_legacy_count += 1
             else:
                 _LOGGER.warning(
                     "Skipping user profile without user_id: %s",
                     profile.get(CONF_USER_NAME, "Unknown"),
                 )
+
+        # V1 compatibility assertion: Only ONE user can have empty string user_id
+        # This preserves entity IDs during v1→v2 migration
+        if v1_legacy_count > 1:
+            raise ValueError(
+                f"Invalid configuration: Found {v1_legacy_count} users with empty string user_id. "
+                "Only one user can have empty string user_id (reserved for v1 compatibility). "
+                "This indicates corrupted migration data."
+            )
+
         self._person_detector = PersonDetector(hass, device_name, DOMAIN)
         # Pending measurements awaiting manual assignment: {timestamp: (weight_kg, raw_measurements_dict, ambiguous_user_ids)}
         # raw_measurements_dict contains only weight and impedance (body metrics calculated on assignment)
@@ -657,9 +669,6 @@ class ScaleDataUpdateCoordinator:
         self._last_user_measurement: dict[
             str, dict
         ] = {}  # user_id -> raw measurements dict
-        self._unassigned_measurements: dict[
-            str, dict
-        ] = {}  # timestamp -> raw measurements dict
         self._ambiguous_notifications: set[str] = (
             set()
         )  # active notification timestamps
@@ -1019,10 +1028,8 @@ class ScaleDataUpdateCoordinator:
         This is used to trigger updates to diagnostic sensors that display coordinator
         state (like pending measurements) rather than scale measurement data.
         """
-        from etekcity_esf551_ble import ScaleData as ESFScaleData
-
         # Create empty scale data to trigger sensor state updates
-        empty_data = ESFScaleData(measurements={})
+        empty_data = ScaleData(measurements={})
 
         # Notify all general listeners (includes diagnostic sensors)
         for listener_callback in self._listeners.values():
@@ -1107,9 +1114,6 @@ class ScaleDataUpdateCoordinator:
 
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
-
-            # Route to unassigned sensor
-            self._store_unassigned_measurement(data)
         else:
             # No user detected - could be first measurement or out of tolerance
             _LOGGER.debug(
@@ -1148,9 +1152,6 @@ class ScaleDataUpdateCoordinator:
                     _LOGGER.debug(
                         "Created notification for unmatched measurement (could be first-time or out of tolerance)"
                     )
-
-            # Always route to unassigned sensor
-            self._store_unassigned_measurement(data)
 
     def _route_to_user(self, user_id: str, data: ScaleData) -> None:
         """Route measurement to a specific user's sensors.
@@ -1275,39 +1276,6 @@ class ScaleDataUpdateCoordinator:
             except Exception as ex:
                 _LOGGER.error("Error updating listener for user %s: %s", user_id, ex)
 
-    def _store_unassigned_measurement(self, data: ScaleData) -> None:
-        """Store unassigned measurement in memory for later assignment.
-
-        Args:
-            data: The scale data to store.
-        """
-        # Store raw unassigned measurement
-        weight_kg = data.measurements.get("weight")
-        impedance = data.measurements.get("impedance")
-        timestamp = datetime.now().isoformat()
-
-        if weight_kg is not None:
-            self._unassigned_measurements[timestamp] = {
-                "weight": weight_kg,
-                "impedance": impedance,
-                "timestamp": timestamp,
-            }
-            _LOGGER.debug(
-                "Stored unassigned measurement: weight=%.2f kg, timestamp=%s",
-                weight_kg,
-                timestamp,
-            )
-
-            # Keep only last N unassigned measurements (FIFO cleanup)
-            if len(self._unassigned_measurements) > self.MAX_UNASSIGNED_MEASUREMENTS:
-                oldest_timestamp = next(iter(self._unassigned_measurements))
-                del self._unassigned_measurements[oldest_timestamp]
-                _LOGGER.debug(
-                    "Removed oldest unassigned measurement: %s (FIFO cleanup, max=%d)",
-                    oldest_timestamp,
-                    self.MAX_UNASSIGNED_MEASUREMENTS,
-                )
-
     def _create_ambiguous_notification(
         self,
         weight_kg: float,
@@ -1411,9 +1379,7 @@ class ScaleDataUpdateCoordinator:
                     raw_measurements["impedance"] = impedance
 
             # Route to the single candidate user
-            from etekcity_esf551_ble import ScaleData as ESFScaleData
-
-            scale_data = ESFScaleData(measurements=raw_measurements)
+            scale_data = ScaleData(measurements=raw_measurements)
             self._route_to_user(auto_assign_user_id, scale_data)
             return
 
@@ -1519,14 +1485,11 @@ class ScaleDataUpdateCoordinator:
 
         # Create a ScaleData object with raw measurements and route to the user
         # Body metrics will be calculated by _route_to_user() based on the user's profile
-        from etekcity_esf551_ble import ScaleData
-
         scale_data = ScaleData(measurements=measurements)
         self._route_to_user(user_id, scale_data)
 
         # Clean up tracking structures
         self._ambiguous_notifications.discard(timestamp)
-        self._unassigned_measurements.pop(timestamp, None)
 
         # Dismiss the notification
         persistent_notification.dismiss(
@@ -1551,11 +1514,11 @@ class ScaleDataUpdateCoordinator:
 
         Returns:
             True if reassignment succeeded, False otherwise.
+
+        Note:
+            Caller is responsible for validating that both user IDs exist.
+            Service handlers in __init__.py perform this validation.
         """
-        # Validate target user exists
-        if to_user_id not in self._user_profiles_by_id:
-            _LOGGER.error("Target user %s not found in user profiles", to_user_id)
-            return False
         # Get measurement from source user (try memory first, then sensor state)
         measurements = self._last_user_measurement.get(from_user_id)
 
@@ -1648,8 +1611,6 @@ class ScaleDataUpdateCoordinator:
 
         # Create ScaleData with only raw measurements
         # Body metrics will be recalculated by _route_to_user() based on target user's profile
-        from etekcity_esf551_ble import ScaleData
-
         scale_data = ScaleData(measurements=measurements)
 
         # Route to target user (this will store in _last_user_measurement for target)
@@ -1689,8 +1650,6 @@ class ScaleDataUpdateCoordinator:
         self._last_user_measurement.pop(user_id, None)
 
         # Signal user's sensors to revert using direct callback registry
-        from etekcity_esf551_ble import ScaleData
-
         revert_data = ScaleData(measurements={"_revert_": True})
         for update_callback in self._user_callbacks.get(user_id, []):
             try:
