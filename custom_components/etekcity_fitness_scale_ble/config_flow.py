@@ -41,6 +41,54 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _validate_user_id_unique(
+    user_id: str,
+    user_profiles: list[dict],
+    exclude_user_id: str | None = None,
+) -> bool:
+    """Validate that user_id is unique among profiles.
+
+    Args:
+        user_id: The user ID to check.
+        user_profiles: List of existing user profiles.
+        exclude_user_id: Optional user_id to exclude from check (for edits).
+
+    Returns:
+        True if user_id is unique, False otherwise.
+    """
+    for profile in user_profiles:
+        profile_id = profile.get(CONF_USER_ID)
+        if profile_id == user_id and profile_id != exclude_user_id:
+            return False
+    return True
+
+
+def _validate_user_name_not_empty(user_name: str) -> bool:
+    """Validate that user_name is not empty.
+
+    Args:
+        user_name: The user name to check.
+
+    Returns:
+        True if user_name is not empty, False otherwise.
+    """
+    return bool(user_name and user_name.strip())
+
+
+def _validate_user_id_not_reserved(user_id: str) -> bool:
+    """Validate that user_id is not a reserved value.
+
+    The empty string "" is reserved for v1 compatibility.
+
+    Args:
+        user_id: The user ID to check.
+
+    Returns:
+        True if user_id is not reserved, False otherwise.
+    """
+    return user_id != ""
+
+
 @dataclasses.dataclass(frozen=True)
 class Discovery:
     """Represents a discovered Bluetooth device.
@@ -69,52 +117,6 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._discovered_devices: dict[str, Discovery] = {}
         self._initialize_schema_dicts()
-
-    def _validate_user_id_unique(
-        self,
-        user_id: str,
-        user_profiles: list[dict],
-        exclude_user_id: str | None = None,
-    ) -> bool:
-        """Validate that user_id is unique among profiles.
-
-        Args:
-            user_id: The user ID to check.
-            user_profiles: List of existing user profiles.
-            exclude_user_id: Optional user_id to exclude from check (for edits).
-
-        Returns:
-            True if user_id is unique, False otherwise.
-        """
-        for profile in user_profiles:
-            profile_id = profile.get(CONF_USER_ID)
-            if profile_id == user_id and profile_id != exclude_user_id:
-                return False
-        return True
-
-    def _validate_user_name_not_empty(self, user_name: str) -> bool:
-        """Validate that user_name is not empty.
-
-        Args:
-            user_name: The user name to check.
-
-        Returns:
-            True if user_name is not empty, False otherwise.
-        """
-        return bool(user_name and user_name.strip())
-
-    def _validate_user_id_not_reserved(self, user_id: str) -> bool:
-        """Validate that user_id is not a reserved value.
-
-        The empty string "" is reserved for v1 compatibility.
-
-        Args:
-            user_id: The user ID to check.
-
-        Returns:
-            True if user_id is not reserved, False otherwise.
-        """
-        return user_id != ""
 
     def _initialize_schema_dicts(self) -> None:
         """Initialize metric and imperial schema dictionaries."""
@@ -590,7 +592,7 @@ class ScaleOptionsFlow(OptionsFlow):
         if user_input is not None:
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
-            if not self._validate_user_name_not_empty(user_name):
+            if not _validate_user_name_not_empty(user_name):
                 schema = {
                     vol.Required(CONF_USER_NAME): str,
                     vol.Optional(CONF_PERSON_ENTITY): selector.EntitySelector(
@@ -615,7 +617,7 @@ class ScaleOptionsFlow(OptionsFlow):
             new_user_id = str(uuid.uuid4())
 
             # Validate uniqueness (defensive, should always pass with UUID4)
-            if not self._validate_user_id_unique(new_user_id, self.user_profiles):
+            if not _validate_user_id_unique(new_user_id, self.user_profiles):
                 _LOGGER.error(
                     "Generated duplicate user_id (extremely rare): %s", new_user_id
                 )
@@ -666,7 +668,7 @@ class ScaleOptionsFlow(OptionsFlow):
         if user_input is not None:
             # Validate user_name from context is not empty
             user_name = self.context[CONF_USER_NAME]
-            if not self._validate_user_name_not_empty(user_name):
+            if not _validate_user_name_not_empty(user_name):
                 _LOGGER.error(
                     "Empty user_name in context during body metrics collection"
                 )
@@ -694,7 +696,7 @@ class ScaleOptionsFlow(OptionsFlow):
             new_user_id = str(uuid.uuid4())
 
             # Validate uniqueness (defensive, should always pass with UUID4)
-            if not self._validate_user_id_unique(new_user_id, self.user_profiles):
+            if not _validate_user_id_unique(new_user_id, self.user_profiles):
                 _LOGGER.error(
                     "Generated duplicate user_id (extremely rare): %s", new_user_id
                 )
@@ -790,7 +792,7 @@ class ScaleOptionsFlow(OptionsFlow):
         if user_input is not None:
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
-            if not self._validate_user_name_not_empty(user_name):
+            if not _validate_user_name_not_empty(user_name):
                 # Re-show form with error
                 current_person = current_user.get(CONF_PERSON_ENTITY)
                 schema = {

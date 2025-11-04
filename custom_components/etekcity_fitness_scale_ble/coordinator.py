@@ -956,6 +956,49 @@ class ScaleDataUpdateCoordinator:
             raw_measurements["impedance"] = data.measurements["impedance"]
         return raw_measurements
 
+    def _validate_measurement(
+        self, weight_kg: float | None, impedance: float | None
+    ) -> bool:
+        """Validate measurement types (defensive check for corrupted BLE data).
+
+        Args:
+            weight_kg: Weight in kilograms (can be None).
+            impedance: Impedance in ohms (can be None).
+
+        Returns:
+            True if measurements are valid types, False otherwise.
+        """
+        # Type validation only - scale hardware determines valid ranges
+        if weight_kg is not None and not isinstance(weight_kg, (int, float)):
+            _LOGGER.warning("Invalid weight type: %s", type(weight_kg))
+            return False
+
+        if impedance is not None and not isinstance(impedance, (int, float)):
+            _LOGGER.warning("Invalid impedance type: %s", type(impedance))
+            return False
+
+        return True
+
+    def _cleanup_old_pending_measurements(self) -> None:
+        """Clean up oldest pending measurements when limit is exceeded (FIFO)."""
+        MAX_PENDING = 10
+
+        if len(self._pending_measurements) > MAX_PENDING:
+            oldest_timestamp = next(iter(self._pending_measurements))
+            del self._pending_measurements[oldest_timestamp]
+
+            # Clean up the notification for the oldest measurement
+            self._ambiguous_notifications.discard(oldest_timestamp)
+            persistent_notification.dismiss(
+                self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
+            )
+
+            _LOGGER.debug(
+                "Removed oldest pending measurement: %s (FIFO cleanup, max=%d)",
+                oldest_timestamp,
+                MAX_PENDING,
+            )
+
     @callback
     def update_listeners(self, data: ScaleData) -> None:
         """Update all registered listeners with multi-user routing.
@@ -980,6 +1023,16 @@ class ScaleDataUpdateCoordinator:
         weight_kg = data.measurements.get("weight")
         if weight_kg is None:
             _LOGGER.warning("No weight measurement in scale data, cannot route to user")
+            return
+
+        # Validate measurement ranges
+        impedance = data.measurements.get("impedance")
+        if not self._validate_measurement(weight_kg, impedance):
+            _LOGGER.error(
+                "Invalid measurement values, rejecting data (weight: %s, impedance: %s)",
+                weight_kg,
+                impedance,
+            )
             return
 
         # Smart detection logic: Single user auto-assign (skip detection)
@@ -1041,21 +1094,12 @@ class ScaleDataUpdateCoordinator:
                     all_user_ids,
                 )
 
-                # Keep only last 10 pending measurements (FIFO cleanup)
-                if len(self._pending_measurements) > 10:
-                    oldest_timestamp = next(iter(self._pending_measurements))
-                    del self._pending_measurements[oldest_timestamp]
-                    # Clean up the notification for the oldest measurement
-                    self._ambiguous_notifications.discard(oldest_timestamp)
-                    persistent_notification.dismiss(
-                        self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
-                    )
-                    _LOGGER.debug(
-                        "Removed oldest pending measurement: %s (FIFO cleanup)",
-                        oldest_timestamp,
-                    )
+                # Keep only last N pending measurements (FIFO cleanup)
+                self._cleanup_old_pending_measurements()
 
-                self._create_ambiguous_notification(weight_kg, all_user_ids, timestamp)
+                self._create_ambiguous_notification(
+                    weight_kg, all_user_ids, timestamp, impedance
+                )
 
             self._store_unassigned_measurement(data)
             return
@@ -1081,22 +1125,11 @@ class ScaleDataUpdateCoordinator:
                 ambiguous_user_ids,
             )
 
-            # Keep only last 10 pending measurements (FIFO cleanup)
-            if len(self._pending_measurements) > 10:
-                oldest_timestamp = next(iter(self._pending_measurements))
-                del self._pending_measurements[oldest_timestamp]
-                # Clean up the notification for the oldest measurement
-                self._ambiguous_notifications.discard(oldest_timestamp)
-                persistent_notification.dismiss(
-                    self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
-                )
-                _LOGGER.debug(
-                    "Removed oldest pending measurement: %s (FIFO cleanup)",
-                    oldest_timestamp,
-                )
+            # Keep only last N pending measurements (FIFO cleanup)
+            self._cleanup_old_pending_measurements()
 
             self._create_ambiguous_notification(
-                weight_kg, ambiguous_user_ids, timestamp
+                weight_kg, ambiguous_user_ids, timestamp, impedance
             )
             # Route to unassigned sensor
             self._store_unassigned_measurement(data)
@@ -1125,22 +1158,11 @@ class ScaleDataUpdateCoordinator:
                         all_user_ids,
                     )
 
-                    # Keep only last 10 pending measurements (FIFO cleanup)
-                    if len(self._pending_measurements) > 10:
-                        oldest_timestamp = next(iter(self._pending_measurements))
-                        del self._pending_measurements[oldest_timestamp]
-                        # Clean up the notification for the oldest measurement
-                        self._ambiguous_notifications.discard(oldest_timestamp)
-                        persistent_notification.dismiss(
-                            self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
-                        )
-                        _LOGGER.debug(
-                            "Removed oldest pending measurement: %s (FIFO cleanup)",
-                            oldest_timestamp,
-                        )
+                    # Keep only last N pending measurements (FIFO cleanup)
+                    self._cleanup_old_pending_measurements()
 
                     self._create_ambiguous_notification(
-                        weight_kg, all_user_ids, timestamp
+                        weight_kg, all_user_ids, timestamp, impedance
                     )
                     _LOGGER.info(
                         "Created notification for unmatched measurement (could be first-time or out of tolerance)"
@@ -1194,19 +1216,58 @@ class ScaleDataUpdateCoordinator:
                 impedance = data.measurements.get("impedance")
 
                 if weight_kg and impedance:
-                    # Parse birthdate
+                    # Validate required profile fields
                     birthdate_str = user_profile.get("birthdate")
-                    if isinstance(birthdate_str, str):
-                        birthdate = dt_date.fromisoformat(birthdate_str)
-                    else:
-                        birthdate = birthdate_str
+                    if not birthdate_str:
+                        _LOGGER.warning(
+                            "Missing birthdate for user %s, cannot calculate body metrics",
+                            user_id,
+                        )
+                        return
 
-                    # Parse sex
+                    # Parse birthdate with error handling
+                    try:
+                        if isinstance(birthdate_str, str):
+                            birthdate = dt_date.fromisoformat(birthdate_str)
+                        else:
+                            birthdate = birthdate_str
+                    except (ValueError, TypeError) as ex:
+                        _LOGGER.error(
+                            "Invalid birthdate format for user %s: %s (error: %s)",
+                            user_id,
+                            birthdate_str,
+                            ex,
+                        )
+                        return
+
+                    # Parse sex with validation
                     sex_str = user_profile.get("sex", "Male")
+                    if sex_str not in ("Male", "Female"):
+                        _LOGGER.warning(
+                            "Invalid sex value for user %s: %s, defaulting to Male",
+                            user_id,
+                            sex_str,
+                        )
+                        sex_str = "Male"
                     sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
 
-                    # Get height
-                    height_cm = user_profile.get("height", 170)
+                    # Get and validate height
+                    height_cm = user_profile.get("height")
+                    if not height_cm or not isinstance(height_cm, (int, float)):
+                        _LOGGER.warning(
+                            "Invalid or missing height for user %s: %s, defaulting to 170cm",
+                            user_id,
+                            height_cm,
+                        )
+                        height_cm = 170
+                    elif height_cm < 50 or height_cm > 300:
+                        _LOGGER.warning(
+                            "Height out of realistic range for user %s: %d cm, clamping to 100-250cm",
+                            user_id,
+                            height_cm,
+                        )
+                        height_cm = max(100, min(250, height_cm))
+
                     height_m = height_cm / 100.0
 
                     # Calculate body metrics
@@ -1265,32 +1326,156 @@ class ScaleDataUpdateCoordinator:
                 )
 
     def _create_ambiguous_notification(
-        self, weight_kg: float, ambiguous_user_ids: list[str], timestamp: str
+        self,
+        weight_kg: float,
+        ambiguous_user_ids: list[str],
+        timestamp: str,
+        impedance: float | None = None,
     ) -> None:
-        """Create a persistent notification for ambiguous measurements.
+        """Create an enhanced persistent notification for ambiguous measurements.
+
+        Filters and ranks users intelligently:
+        1. First shows users matching within tolerance (sorted by closeness)
+        2. Then shows users with no previous measurements
 
         Args:
             weight_kg: The measured weight in kg.
-            ambiguous_user_ids: List of user IDs that match the measurement.
+            ambiguous_user_ids: List of user IDs that could match (includes all users if any lack history).
             timestamp: Timestamp of the measurement.
+            impedance: Optional impedance measurement in ohms.
         """
-        # Build user list with names and IDs using O(1) dictionary lookups
-        user_list_items = []
+        from .person_detector import WEIGHT_TOLERANCE_KG
+
+        # Get entity registry for weight lookups
+        entity_reg = er.async_get(self._hass)
+
+        # Categorize users: matching vs no history
+        matching_users = []  # (user_id, weight_diff, user_name)
+        no_history_users = []  # (user_id, user_name)
+
         for user_id in ambiguous_user_ids:
             user_profile = self._user_profiles_by_id.get(user_id)
-            if user_profile:
-                user_name = user_profile.get("name", user_id)
-                user_list_items.append(f"- {user_name} (ID: `{user_id}`)")
+            if not user_profile:
+                continue
+
+            user_name = user_profile.get("name", user_id)
+
+            # Look up user's current weight
+            sensor_unique_id = get_sensor_unique_id(
+                self._device_name, user_id, "weight"
+            )
+            sensor_entity_id = entity_reg.async_get_entity_id(
+                "sensor", DOMAIN, sensor_unique_id
+            )
+
+            if not sensor_entity_id:
+                no_history_users.append((user_id, user_name))
+                continue
+
+            sensor_state = self._hass.states.get(sensor_entity_id)
+            if not sensor_state or sensor_state.state in ("unknown", "unavailable"):
+                no_history_users.append((user_id, user_name))
+                continue
+
+            try:
+                last_weight_kg = float(sensor_state.state)
+                weight_diff = abs(weight_kg - last_weight_kg)
+
+                # Only include if within tolerance
+                if weight_diff <= WEIGHT_TOLERANCE_KG:
+                    matching_users.append((user_id, weight_diff, user_name))
+            except (ValueError, TypeError):
+                no_history_users.append((user_id, user_name))
+
+        # Sort matching users by weight difference (closest first)
+        matching_users.sort(key=lambda x: x[1])
+
+        # Check if we have exactly one candidate - auto-assign if so
+        total_candidates = len(matching_users) + len(no_history_users)
+        if total_candidates == 1:
+            # Single candidate - auto-assign without notification
+            if matching_users:
+                auto_assign_user_id = matching_users[0][0]
+                auto_assign_user_name = matching_users[0][2]
+                weight_diff = matching_users[0][1]
+                _LOGGER.info(
+                    "Single candidate after filtering, auto-assigning to %s (weight diff: ±%.2f kg)",
+                    auto_assign_user_name,
+                    weight_diff,
+                )
+            else:
+                auto_assign_user_id = no_history_users[0][0]
+                auto_assign_user_name = no_history_users[0][1]
+                _LOGGER.info(
+                    "Single candidate with no history, auto-assigning to %s",
+                    auto_assign_user_name,
+                )
+
+            # Get raw measurements before removing from pending
+            raw_measurements = {}
+            if timestamp in self._pending_measurements:
+                _, raw_measurements, _ = self._pending_measurements[timestamp]
+                # Remove from pending
+                del self._pending_measurements[timestamp]
+                self._ambiguous_notifications.discard(timestamp)
+
+            if not raw_measurements:
+                # Extract from current data if not in pending
+                raw_measurements = {
+                    "weight": weight_kg,
+                }
+                if impedance is not None:
+                    raw_measurements["impedance"] = impedance
+
+            # Route to the single candidate user
+            from etekcity_esf551_ble import ScaleData as ESFScaleData
+
+            scale_data = ESFScaleData(measurements=raw_measurements)
+            self._route_to_user(auto_assign_user_id, scale_data)
+            return
+
+        # Build user list with sections
+        user_list_items = []
+
+        if matching_users:
+            user_list_items.append("**Likely matches (by weight):**")
+            for user_id, weight_diff, user_name in matching_users:
+                user_list_items.append(
+                    f"- **{user_name}** (`{user_id}`) — ±{weight_diff:.1f} kg"
+                )
+
+        if no_history_users:
+            if matching_users:
+                user_list_items.append("")  # Blank line separator
+            user_list_items.append("**No previous measurements:**")
+            for user_id, user_name in no_history_users:
+                user_list_items.append(f"- **{user_name}** ( user id: `{user_id}`)")
 
         user_list = "\n".join(user_list_items)
 
+        # Build measurement info
+        measurement_info = f"Weight: **{weight_kg:.2f} kg**"
+        if impedance is not None:
+            measurement_info += f"  \nImpedance: **{impedance:.0f} Ω**"
+
+        # Build enhanced notification with copy-paste YAML and step-by-step instructions
         message = (
-            f"**Weight:** {weight_kg:.2f} kg  \n"
-            f"**Timestamp:** `{timestamp}`  \n\n"
-            f"**Possible users:**\n{user_list}\n\n"
-            f"Use the service `etekcity_fitness_scale_ble.assign_measurement` with:\n"
-            f"- **timestamp:** `{timestamp}`\n"
-            f"- **user_id:** (copy from above)"
+            f"**Multiple users could match this measurement**\n\n"
+            f"{measurement_info}  \n"
+            f"Timestamp: `{timestamp}`\n\n"
+            f"{user_list}\n\n"
+            f"**To assign this measurement:**\n\n"
+            f"1. Copy the service call below\n"
+            f"2. Go to **Developer Tools → Actions**\n"
+            f"3. Paste and select the correct `user_id`\n"
+            f"4. Click **Perform Action**\n\n"
+            f"```yaml\n"
+            f"action: etekcity_fitness_scale_ble.assign_measurement\n"
+            f"data:\n"
+            f'  timestamp: "{timestamp}"\n'
+            f'  user_id: "<SELECT_USER_ID_FROM_ABOVE>"\n'
+            f"```\n\n"
+            f"*This notification will auto-dismiss once the measurement is assigned.*"
         )
 
         # Track this ambiguous notification
@@ -1299,7 +1484,7 @@ class ScaleDataUpdateCoordinator:
         persistent_notification.create(
             self._hass,
             message,
-            title="Etekcity Scale: Ambiguous Measurement",
+            title="⚖️ Etekcity Scale: Choose User",
             notification_id=f"etekcity_scale_ambiguous_{timestamp}",
         )
 
