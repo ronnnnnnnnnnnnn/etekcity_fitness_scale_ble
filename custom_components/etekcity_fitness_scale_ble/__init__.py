@@ -171,6 +171,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
+    # Helper function to find coordinator and validate users
+    def _get_coordinator_and_validate_users(
+        user_ids_to_check: list[str],
+    ) -> ScaleDataUpdateCoordinator:
+        """Find coordinator and validate that user IDs exist.
+
+        Args:
+            user_ids_to_check: List of user IDs to validate.
+
+        Returns:
+            The coordinator instance.
+
+        Raises:
+            HomeAssistantError: If coordinator not found or user IDs invalid.
+        """
+        from homeassistant.exceptions import HomeAssistantError
+
+        # Find the coordinator for this scale
+        # For now, use the first coordinator (single scale assumption)
+        # In multi-scale setups, would need device_id in service call
+        for coord in hass.data[DOMAIN].values():
+            if isinstance(coord, ScaleDataUpdateCoordinator):
+                # Validate users exist
+                user_profiles = coord.get_user_profiles()
+                valid_user_ids = [
+                    profile.get(CONF_USER_ID)
+                    for profile in user_profiles
+                    if profile.get(CONF_USER_ID)
+                ]
+
+                # Check each user_id
+                for user_id in user_ids_to_check:
+                    if user_id not in valid_user_ids:
+                        raise HomeAssistantError(
+                            f"User {user_id} not found in user profiles"
+                        )
+
+                return coord
+
+        # No coordinator found
+        _LOGGER.error("No coordinator found for service call")
+        raise HomeAssistantError(
+            "No scale found. Ensure the Etekcity Fitness Scale integration is set up."
+        )
+
     # Register services
     async def handle_assign_measurement(call: ServiceCall) -> None:
         """Handle the assign_measurement service call."""
@@ -185,48 +230,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             user_id,
         )
 
-        # Find the coordinator for this scale
-        # For now, use the first coordinator (single scale assumption)
-        # In multi-scale setups, would need device_id in service call
-        coordinator_found = False
-        for coord in hass.data[DOMAIN].values():
-            if isinstance(coord, ScaleDataUpdateCoordinator):
-                # Validate user exists
-                user_profiles = coord.get_user_profiles()
-                user_ids = [
-                    profile.get(CONF_USER_ID)
-                    for profile in user_profiles
-                    if profile.get(CONF_USER_ID)
-                ]
-                if user_id not in user_ids:
-                    raise HomeAssistantError(
-                        f"User {user_id} not found in user profiles"
-                    )
+        # Find coordinator and validate user exists
+        coord = _get_coordinator_and_validate_users([user_id])
 
-                success = coord.assign_pending_measurement(timestamp, user_id)
-                if success:
-                    _LOGGER.info(
-                        "Successfully assigned measurement %s to user %s",
-                        timestamp,
-                        user_id,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Failed to assign measurement %s to user %s",
-                        timestamp,
-                        user_id,
-                    )
-                    raise HomeAssistantError(
-                        f"Failed to assign measurement {timestamp} to user {user_id}. "
-                        f"Check that the timestamp exists in pending measurements."
-                    )
-                coordinator_found = True
-                break
-
-        if not coordinator_found:
-            _LOGGER.error("No coordinator found for assign_measurement service")
+        # Assign the pending measurement
+        success = coord.assign_pending_measurement(timestamp, user_id)
+        if success:
+            _LOGGER.info(
+                "Successfully assigned measurement %s to user %s",
+                timestamp,
+                user_id,
+            )
+        else:
+            _LOGGER.warning(
+                "Failed to assign measurement %s to user %s",
+                timestamp,
+                user_id,
+            )
             raise HomeAssistantError(
-                "No scale found. Ensure the Etekcity Fitness Scale integration is set up."
+                f"Failed to assign measurement {timestamp} to user {user_id}. "
+                f"Check that the timestamp exists in pending measurements."
             )
 
     async def handle_reassign_measurement(call: ServiceCall) -> None:
@@ -242,50 +265,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             to_user_id,
         )
 
-        # Find the coordinator for this scale
-        coordinator_found = False
-        for coord in hass.data[DOMAIN].values():
-            if isinstance(coord, ScaleDataUpdateCoordinator):
-                # Validate users exist
-                user_profiles = coord.get_user_profiles()
-                user_ids = [
-                    profile.get(CONF_USER_ID)
-                    for profile in user_profiles
-                    if profile.get(CONF_USER_ID)
-                ]
-                if from_user_id not in user_ids:
-                    raise HomeAssistantError(
-                        f"Source user {from_user_id} not found in user profiles"
-                    )
-                if to_user_id not in user_ids:
-                    raise HomeAssistantError(
-                        f"Target user {to_user_id} not found in user profiles"
-                    )
+        # Find coordinator and validate both users exist
+        coord = _get_coordinator_and_validate_users([from_user_id, to_user_id])
 
-                success = coord.reassign_user_measurement(from_user_id, to_user_id)
-                if success:
-                    _LOGGER.info(
-                        "Successfully reassigned measurement from user %s to user %s",
-                        from_user_id,
-                        to_user_id,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Failed to reassign measurement from user %s to user %s",
-                        from_user_id,
-                        to_user_id,
-                    )
-                    raise HomeAssistantError(
-                        f"Failed to reassign measurement from user {from_user_id} to user {to_user_id}. "
-                        f"Check that the source user has a recent measurement."
-                    )
-                coordinator_found = True
-                break
-
-        if not coordinator_found:
-            _LOGGER.error("No coordinator found for reassign_measurement service")
+        # Reassign the measurement
+        success = coord.reassign_user_measurement(from_user_id, to_user_id)
+        if success:
+            _LOGGER.info(
+                "Successfully reassigned measurement from user %s to user %s",
+                from_user_id,
+                to_user_id,
+            )
+        else:
+            _LOGGER.warning(
+                "Failed to reassign measurement from user %s to user %s",
+                from_user_id,
+                to_user_id,
+            )
             raise HomeAssistantError(
-                "No scale found. Ensure the Etekcity Fitness Scale integration is set up."
+                f"Failed to reassign measurement from user {from_user_id} to user {to_user_id}. "
+                f"Check that the source user has a recent measurement."
             )
 
     async def handle_remove_measurement(call: ServiceCall) -> None:
@@ -299,44 +298,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             user_id,
         )
 
-        # Find the coordinator for this scale
-        coordinator_found = False
-        for coord in hass.data[DOMAIN].values():
-            if isinstance(coord, ScaleDataUpdateCoordinator):
-                # Validate user exists
-                user_profiles = coord.get_user_profiles()
-                user_ids = [
-                    profile.get(CONF_USER_ID)
-                    for profile in user_profiles
-                    if profile.get(CONF_USER_ID)
-                ]
-                if user_id not in user_ids:
-                    raise HomeAssistantError(
-                        f"User {user_id} not found in user profiles"
-                    )
+        # Find coordinator and validate user exists
+        coord = _get_coordinator_and_validate_users([user_id])
 
-                success = coord.remove_user_measurement(user_id)
-                if success:
-                    _LOGGER.info(
-                        "Successfully removed measurement for user %s",
-                        user_id,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Failed to remove measurement for user %s",
-                        user_id,
-                    )
-                    raise HomeAssistantError(
-                        f"Failed to remove measurement for user {user_id}. "
-                        f"Check that the user has a recent measurement to remove."
-                    )
-                coordinator_found = True
-                break
-
-        if not coordinator_found:
-            _LOGGER.error("No coordinator found for remove_measurement service")
+        # Remove the measurement
+        success = coord.remove_user_measurement(user_id)
+        if success:
+            _LOGGER.info(
+                "Successfully removed measurement for user %s",
+                user_id,
+            )
+        else:
+            _LOGGER.warning(
+                "Failed to remove measurement for user %s",
+                user_id,
+            )
             raise HomeAssistantError(
-                "No scale found. Ensure the Etekcity Fitness Scale integration is set up."
+                f"Failed to remove measurement for user {user_id}. "
+                f"Check that the user has a recent measurement to remove."
             )
 
     # Register the services on first setup
