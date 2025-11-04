@@ -8,7 +8,7 @@ import logging
 import platform
 from collections.abc import Callable
 from functools import partial
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Literal
 
 from aioesphomeapi import APIClient, BluetoothProxyFeature
 from aioesphomeapi.model import BluetoothLEAdvertisement, DeviceInfo
@@ -36,7 +36,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_USER_ID, DOMAIN, get_sensor_unique_id
+from .const import CONF_USER_ID, CONF_USER_NAME, DOMAIN, get_sensor_unique_id
 from .person_detector import PersonDetector
 
 SYSTEM = platform.system()
@@ -74,10 +74,10 @@ class BleakScannerESPHome(BaseBleakScanner):
 
     def __init__(
         self,
-        detection_callback: Optional[Callable[[BLEDevice, AdvertisementData], None]],
-        service_uuids: Optional[List[str]],
+        detection_callback: Callable[[BLEDevice, AdvertisementData], None] | None,
+        service_uuids: list[str] | None,
         scanning_mode: Literal["active", "passive"],
-        clients: List[APIClient],
+        clients: list[APIClient],
         **kwargs,
     ):
         """
@@ -87,7 +87,7 @@ class BleakScannerESPHome(BaseBleakScanner):
             detection_callback: Function called when a device advertisement is detected.
             service_uuids: Optional list of service UUIDs to filter advertisements.
             scanning_mode: Whether to use active or passive scanning.
-            clients: List of ESPHome API clients to use as Bluetooth proxies.
+            clients: list of ESPHome API clients to use as Bluetooth proxies.
             **kwargs: Additional arguments (not used).
         """
         super().__init__(detection_callback, service_uuids)
@@ -96,13 +96,13 @@ class BleakScannerESPHome(BaseBleakScanner):
         self._scanning = False
 
         # Per-client tracking
-        self._client_info: dict[APIClient, Optional[DeviceInfo]] = {
+        self._client_info: dict[APIClient, DeviceInfo | None] = {
             client: None for client in self._clients
         }
         self._client_features: dict[APIClient, int] = {
             client: 0 for client in self._clients
         }
-        self._client_unsubscribers: dict[APIClient, Optional[Callable[[], None]]] = {
+        self._client_unsubscribers: dict[APIClient, Callable[[], None] | None] = {
             client: None for client in self._clients
         }
         self._active_clients: dict[APIClient, dict[str, Any]] = {}
@@ -435,10 +435,10 @@ class BleakScannerHybrid(BaseBleakScanner):
 
     def __init__(
         self,
-        detection_callback: Optional[Callable[[BLEDevice, AdvertisementData], None]],
-        service_uuids: Optional[List[str]],
+        detection_callback: Callable[[BLEDevice, AdvertisementData], None] | None,
+        service_uuids: list[str] | None,
         scanning_mode: Literal["active", "passive"],
-        clients: List[APIClient],
+        clients: list[APIClient],
         adapter: str | None = None,
         **kwargs,
     ):
@@ -449,7 +449,7 @@ class BleakScannerHybrid(BaseBleakScanner):
             detection_callback: Function called when a device advertisement is detected.
             service_uuids: Optional list of service UUIDs to filter advertisements.
             scanning_mode: Whether to use active or passive scanning.
-            clients: List of ESPHome API clients to use as Bluetooth proxies.
+            clients: list of ESPHome API clients to use as Bluetooth proxies.
             adapter: The Bluetooth adapter to use for native scanning (Linux only).
             **kwargs: Additional arguments passed to the native scanner.
         """
@@ -457,7 +457,7 @@ class BleakScannerHybrid(BaseBleakScanner):
 
         self._native_scanner = None
         self._proxy_scanner = None
-        self._scanners: List[BaseBleakScanner] = []
+        self._scanners: list[BaseBleakScanner] = []
         self._scanning = False
 
         # Try to create native scanner
@@ -564,7 +564,7 @@ class BleakScannerHybrid(BaseBleakScanner):
                 )
 
     def register_detection_callback(
-        self, callback: Optional[AdvertisementDataCallback]
+        self, callback: AdvertisementDataCallback | None
     ) -> Callable[[], None]:
         for scanner in self._scanners:
             try:
@@ -575,9 +575,9 @@ class BleakScannerHybrid(BaseBleakScanner):
                 )
 
     @property
-    def seen_devices(self) -> dict[str, Tuple[BLEDevice, AdvertisementData]]:
+    def seen_devices(self) -> dict[str, tuple[BLEDevice, AdvertisementData]]:
         """Get the dictionary of seen devices."""
-        seen: dict[str, Tuple[BLEDevice, AdvertisementData]] = {}
+        seen: dict[str, tuple[BLEDevice, AdvertisementData]] = {}
 
         for scanner in self._scanners:
             seen |= scanner.seen_devices
@@ -586,7 +586,7 @@ class BleakScannerHybrid(BaseBleakScanner):
 
     @seen_devices.setter
     def seen_devices(
-        self, value: dict[str, Tuple[BLEDevice, AdvertisementData]]
+        self, value: dict[str, tuple[BLEDevice, AdvertisementData]]
     ) -> None:
         """Set the dictionary of seen devices."""
         # This is intentionally a no-op as we don't want to override
@@ -604,12 +604,16 @@ class ScaleDataUpdateCoordinator:
     """
 
     # Class constants
-    MAX_PENDING_MEASUREMENTS = 10  # Maximum number of pending (ambiguous) measurements to track
-    MAX_UNASSIGNED_MEASUREMENTS = 10  # Maximum number of unassigned measurements to track
+    MAX_PENDING_MEASUREMENTS = (
+        10  # Maximum number of pending (ambiguous) measurements to track
+    )
+    MAX_UNASSIGNED_MEASUREMENTS = (
+        10  # Maximum number of unassigned measurements to track
+    )
 
-    _client: Optional[EtekcitySmartFitnessScale] = None
-    _display_unit: Optional[WeightUnit] = None
-    _scanner_change_cb_unregister: Optional[Callable[[], None]] = None
+    _client: EtekcitySmartFitnessScale | None = None
+    _display_unit: WeightUnit | None = None
+    _scanner_change_cb_unregister: Callable[[], None] | None = None
 
     def __init__(
         self,
@@ -623,7 +627,7 @@ class ScaleDataUpdateCoordinator:
         Args:
             hass: The Home Assistant instance.
             address: The Bluetooth address of the scale.
-            user_profiles: List of user profile dictionaries.
+            user_profiles: list of user profile dictionaries.
             device_name: The device name used for entity ID construction.
         """
         self.address = address
@@ -632,18 +636,23 @@ class ScaleDataUpdateCoordinator:
         self._lock = asyncio.Lock()
         self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
         # User-specific callback registry: user_id -> list of callbacks
-        self._user_callbacks: dict[str, List[Callable[[ScaleData], None]]] = {}
+        self._user_callbacks: dict[str, list[Callable[[ScaleData], None]]] = {}
         self._user_profiles = user_profiles
         # User profiles dictionary for O(1) lookup efficiency
-        self._user_profiles_by_id: dict[str, dict] = {
-            profile[CONF_USER_ID]: profile
-            for profile in user_profiles
-            if profile.get(CONF_USER_ID) is not None
-        }
+        self._user_profiles_by_id: dict[str, dict] = {}
+        for profile in user_profiles:
+            user_id = profile.get(CONF_USER_ID)
+            if user_id is not None:
+                self._user_profiles_by_id[user_id] = profile
+            else:
+                _LOGGER.warning(
+                    "Skipping user profile without user_id: %s",
+                    profile.get(CONF_USER_NAME, "Unknown"),
+                )
         self._person_detector = PersonDetector(hass, device_name, DOMAIN)
         # Pending measurements awaiting manual assignment: {timestamp: (weight_kg, raw_measurements_dict, ambiguous_user_ids)}
         # raw_measurements_dict contains only weight and impedance (body metrics calculated on assignment)
-        self._pending_measurements: dict[str, Tuple[float, dict, list[str]]] = {}
+        self._pending_measurements: dict[str, tuple[float, dict, list[str]]] = {}
         # Storage for reassignment/removal features
         self._last_user_measurement: dict[
             str, dict
@@ -666,7 +675,7 @@ class ScaleDataUpdateCoordinator:
         if self._client:
             self._client.display_unit = unit
 
-    async def _get_bluetooth_scanner(self) -> Optional[BaseBleakScanner]:
+    async def _get_bluetooth_scanner(self) -> BaseBleakScanner | None:
         """Get the optimal Bluetooth scanner based on available resources.
 
         Returns:
@@ -700,7 +709,7 @@ class ScaleDataUpdateCoordinator:
                 native = False
 
             # Get ESPHome proxies with error handling
-            esphome_clients: List[APIClient] = []
+            esphome_clients: list[APIClient] = []
             try:
                 proxies = [
                     item.data["source"]
@@ -720,7 +729,7 @@ class ScaleDataUpdateCoordinator:
                 esphome_clients = []
 
             # Initialize scanner with error handling
-            scanner: Optional[BaseBleakScanner] = None
+            scanner: BaseBleakScanner | None = None
             if len(esphome_clients) > 0:
                 try:
                     if native:
@@ -1069,69 +1078,7 @@ class ScaleDataUpdateCoordinator:
             self._route_to_user(user_id, data)
             return
 
-        # Smart detection logic: Check if any user lacks weight history
-        # If so, skip detection and notify with all users as candidates
-        users_with_history = []
-        entity_reg = er.async_get(self._hass)
-
-        for user_profile in self._user_profiles:
-            user_id = user_profile.get("user_id")
-            if not user_id:
-                continue
-
-            # Construct unique_id for weight sensor using helper function
-            sensor_unique_id = get_sensor_unique_id(
-                self._device_name, user_id, "weight"
-            )
-
-            # Look up entity_id from unique_id via entity registry
-            sensor_entity_id = entity_reg.async_get_entity_id(
-                "sensor", DOMAIN, sensor_unique_id
-            )
-
-            if not sensor_entity_id:
-                continue
-
-            sensor_state = self._hass.states.get(sensor_entity_id)
-            if sensor_state and sensor_state.state not in ("unknown", "unavailable"):
-                users_with_history.append(user_id)
-
-        # If not all users have history, skip detection and notify all users
-        if len(users_with_history) < len(self._user_profiles):
-            _LOGGER.debug(
-                "Not all users have weight history (%d/%d), skipping detection and notifying all users",
-                len(users_with_history),
-                len(self._user_profiles),
-            )
-            timestamp = datetime.now().isoformat()
-            all_user_ids = [
-                u.get("user_id") for u in self._user_profiles if u.get("user_id")
-            ]
-
-            if all_user_ids:
-                # Store only raw measurements (body metrics will be calculated on assignment)
-                raw_measurements = self._extract_raw_measurements(data)
-                self._pending_measurements[timestamp] = (
-                    weight_kg,
-                    raw_measurements,
-                    all_user_ids,
-                )
-
-                # Keep only last N pending measurements (FIFO cleanup)
-                self._cleanup_old_pending_measurements()
-
-                self._create_ambiguous_notification(
-                    weight_kg, impedance, all_user_ids, timestamp
-                )
-
-                # Notify diagnostic sensors about pending measurements update
-                self._notify_diagnostic_sensors()
-
-            self._store_unassigned_measurement(data)
-            return
-
-        # All users have history, proceed with normal detection
-        _LOGGER.debug("All users have weight history, proceeding with person detection")
+        # Run person detection (matches users within weight tolerance)
         detected_user_id, ambiguous_user_ids = self._person_detector.detect_person(
             weight_kg, self._user_profiles
         )
@@ -1376,7 +1323,7 @@ class ScaleDataUpdateCoordinator:
 
         Args:
             weight_kg: The measured weight in kg.
-            ambiguous_user_ids: List of user IDs that could match (includes all users if any lack history).
+            ambiguous_user_ids: list of user IDs that could match (includes all users if any lack history).
             timestamp: Timestamp of the measurement.
             impedance: Optional impedance measurement in ohms.
         """
@@ -1485,7 +1432,7 @@ class ScaleDataUpdateCoordinator:
                 user_list_items.append("")  # Blank line separator
             user_list_items.append("**No previous measurements:**")
             for user_id, user_name in no_history_users:
-                user_list_items.append(f"- **{user_name}** ( user id: `{user_id}`)")
+                user_list_items.append(f"- **{user_name}** (`{user_id}`)")
 
         user_list = "\n".join(user_list_items)
 
@@ -1524,16 +1471,15 @@ class ScaleDataUpdateCoordinator:
             notification_id=f"etekcity_scale_ambiguous_{timestamp}",
         )
 
-
     def get_user_profiles(self) -> list[dict]:
         """Get all user profiles.
 
         Returns:
-            List of user profile dictionaries.
+            list of user profile dictionaries.
         """
         return self._user_profiles
 
-    def get_pending_measurements(self) -> dict[str, Tuple[float, dict, list[str]]]:
+    def get_pending_measurements(self) -> dict[str, tuple[float, dict, list[str]]]:
         """Get all pending measurements.
 
         Returns:

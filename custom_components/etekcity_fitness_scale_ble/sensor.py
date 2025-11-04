@@ -635,7 +635,7 @@ class ScaleUserSensor(ScaleSensor):
 
         # Update entity attributes for user-specific sensor
         self._attr_name = (
-            f"{user_name} {entity_description.key.replace('_', ' ').title()}"
+            f"{user_name}'s {entity_description.key.replace('_', ' ').title()}"
         )
 
         # Use helper function to construct unique_id (handles v1 compatibility)

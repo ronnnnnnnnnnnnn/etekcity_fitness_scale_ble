@@ -359,7 +359,11 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = {
             vol.Required(CONF_SEX): vol.In(["Male", "Female"]),
-            vol.Required(CONF_BIRTHDATE): selector.DateSelector(),
+            vol.Required(CONF_BIRTHDATE): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.DATE,
+                ),
+            ),
         }
 
         if display_unit == UnitOfMass.KILOGRAMS:
@@ -593,6 +597,7 @@ class ScaleOptionsFlow(OptionsFlow):
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
             if not _validate_user_name_not_empty(user_name):
+                # Re-show form with error (ordered: name → person link → features)
                 schema = {
                     vol.Required(CONF_USER_NAME): str,
                     vol.Optional(CONF_PERSON_ENTITY): selector.EntitySelector(
@@ -647,7 +652,7 @@ class ScaleOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data={})
 
-        # Build schema
+        # Build schema (ordered: name → person link → features)
         schema = {
             vol.Required(CONF_USER_NAME): str,
             vol.Optional(CONF_PERSON_ENTITY): selector.EntitySelector(
@@ -732,7 +737,11 @@ class ScaleOptionsFlow(OptionsFlow):
         # Build schema based on display unit
         schema = {
             vol.Required(CONF_SEX): vol.In(["Male", "Female"]),
-            vol.Required(CONF_BIRTHDATE): selector.DateSelector(),
+            vol.Required(CONF_BIRTHDATE): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.DATE,
+                ),
+            ),
         }
 
         if self.display_unit == UnitOfMass.KILOGRAMS:
@@ -793,22 +802,34 @@ class ScaleOptionsFlow(OptionsFlow):
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
             if not _validate_user_name_not_empty(user_name):
-                # Re-show form with error
+                # Re-show form with error (ordered: name → person link → features)
                 current_person = current_user.get(CONF_PERSON_ENTITY)
                 schema = {
                     vol.Required(
                         CONF_USER_NAME, default=current_user[CONF_USER_NAME]
                     ): str,
-                    vol.Optional(
-                        CONF_PERSON_ENTITY, default=current_person
-                    ): selector.EntitySelector(
+                }
+
+                # Add person entity selector (with default only if one is set)
+                if current_person:
+                    schema[vol.Optional(CONF_PERSON_ENTITY, default=current_person)] = (
+                        selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain="person")
+                        )
+                    )
+                else:
+                    schema[vol.Optional(CONF_PERSON_ENTITY)] = selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="person")
-                    ),
+                    )
+
+                # Add body metrics toggle last
+                schema[
                     vol.Required(
                         CONF_BODY_METRICS_ENABLED,
                         default=current_user.get(CONF_BODY_METRICS_ENABLED, False),
-                    ): cv.boolean,
-                }
+                    )
+                ] = cv.boolean
+
                 return self.async_show_form(
                     step_id="edit_user_details",
                     data_schema=vol.Schema(schema),
@@ -855,19 +876,30 @@ class ScaleOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data={})
 
-        # Build schema
+        # Build schema (ordered: name → person link → features)
         current_person = current_user.get(CONF_PERSON_ENTITY)
 
         schema = {
             vol.Required(CONF_USER_NAME, default=current_user[CONF_USER_NAME]): str,
-            vol.Optional(
-                CONF_PERSON_ENTITY, default=current_person
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="person")),
+        }
+
+        # Add person entity selector (with default only if one is set)
+        if current_person:
+            schema[vol.Optional(CONF_PERSON_ENTITY, default=current_person)] = (
+                selector.EntitySelector(selector.EntitySelectorConfig(domain="person"))
+            )
+        else:
+            schema[vol.Optional(CONF_PERSON_ENTITY)] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person")
+            )
+
+        # Add body metrics toggle last
+        schema[
             vol.Required(
                 CONF_BODY_METRICS_ENABLED,
                 default=current_user.get(CONF_BODY_METRICS_ENABLED, False),
-            ): cv.boolean,
-        }
+            )
+        ] = cv.boolean
 
         return self.async_show_form(
             step_id="edit_user_details",
@@ -944,7 +976,11 @@ class ScaleOptionsFlow(OptionsFlow):
             ),
             vol.Required(
                 CONF_BIRTHDATE, default=current_user.get(CONF_BIRTHDATE)
-            ): selector.DateSelector(),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.DATE,
+                ),
+            ),
         }
 
         if self.display_unit == UnitOfMass.KILOGRAMS:
