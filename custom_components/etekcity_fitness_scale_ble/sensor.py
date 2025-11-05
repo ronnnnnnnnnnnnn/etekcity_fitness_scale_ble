@@ -899,7 +899,7 @@ class ScalePendingMeasurementsSensor(SensorEntity):
         for timestamp, (
             weight_kg,
             raw_measurements,
-            _,  # candidate_ids not needed for display
+            _,
         ) in self._coordinator.get_pending_measurements().items():
             measurement = {
                 "timestamp": timestamp,

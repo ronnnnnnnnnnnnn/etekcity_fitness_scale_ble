@@ -3,6 +3,9 @@
 assign_measurement:
   name: Assign measurement
   description: Manually assign a pending weight measurement to a specific user.
+  target:
+    device:
+      integration: etekcity_fitness_scale_ble
   fields:
     timestamp:
       name: Timestamp
@@ -22,6 +25,9 @@ assign_measurement:
 reassign_measurement:
   name: Reassign measurement
   description: Reassign a user's last measurement to a different user.
+  target:
+    device:
+      integration: etekcity_fitness_scale_ble
   fields:
     from_user_id:
       name: From User ID
@@ -41,6 +47,9 @@ reassign_measurement:
 remove_measurement:
   name: Remove measurement
   description: Remove a user's last measurement (revert to previous or mark unavailable).
+  target:
+    device:
+      integration: etekcity_fitness_scale_ble
   fields:
     user_id:
       name: User ID

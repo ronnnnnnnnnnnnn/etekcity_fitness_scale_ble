@@ -44,25 +44,28 @@ ATTR_USER_ID = "user_id"
 ATTR_FROM_USER_ID = "from_user_id"
 ATTR_TO_USER_ID = "to_user_id"
 
-# Service schemas
+# Service schemas (target is defined in services.yaml, not in vol.Schema)
 SERVICE_ASSIGN_MEASUREMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_TIMESTAMP): cv.string,
         vol.Required(ATTR_USER_ID): cv.string,
-    }
+    },
+    extra=vol.ALLOW_EXTRA,
 )
 
 SERVICE_REASSIGN_MEASUREMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_FROM_USER_ID): cv.string,
         vol.Required(ATTR_TO_USER_ID): cv.string,
-    }
+    },
+    extra=vol.ALLOW_EXTRA,
 )
 
 SERVICE_REMOVE_MEASUREMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_USER_ID): cv.string,
-    }
+    },
+    extra=vol.ALLOW_EXTRA,
 )
 
 
@@ -171,151 +174,169 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # Helper function to find coordinator and validate users
-    def _get_coordinator_and_validate_users(
-        user_ids_to_check: list[str],
-    ) -> ScaleDataUpdateCoordinator:
-        """Find coordinator and validate that user IDs exist.
-
-        Args:
-            user_ids_to_check: List of user IDs to validate.
-
-        Returns:
-            The coordinator instance.
-
-        Raises:
-            HomeAssistantError: If coordinator not found or user IDs invalid.
-        """
+    # Helper: resolve device_id -> coordinator and optionally validate user IDs
+    def _get_coordinator_for_device(device_id: str) -> ScaleDataUpdateCoordinator:
+        """Return coordinator for a specific device_id or raise HomeAssistantError."""
+        from homeassistant.helpers import device_registry as dr
         from homeassistant.exceptions import HomeAssistantError
 
-        # Find the coordinator for this scale
-        # For now, use the first coordinator (single scale assumption)
-        # In multi-scale setups, would need device_id in service call
-        for coord in hass.data[DOMAIN].values():
+        device_registry = dr.async_get(hass)
+        device_entry = device_registry.async_get(device_id)
+        if not device_entry:
+            raise HomeAssistantError(f"Device {device_id} not found")
+
+        for entry_id in device_entry.config_entries:
+            coord = hass.data.get(DOMAIN, {}).get(entry_id)
             if isinstance(coord, ScaleDataUpdateCoordinator):
-                # Validate users exist
-                user_profiles = coord.get_user_profiles()
-                valid_user_ids = [
-                    profile.get(CONF_USER_ID)
-                    for profile in user_profiles
-                    if profile.get(CONF_USER_ID)
-                ]
-
-                # Check each user_id
-                for user_id in user_ids_to_check:
-                    if user_id not in valid_user_ids:
-                        raise HomeAssistantError(
-                            f"User {user_id} not found in user profiles"
-                        )
-
                 return coord
 
-        # No coordinator found
-        _LOGGER.error("No coordinator found for service call")
         raise HomeAssistantError(
-            "No scale found. Ensure the Etekcity Fitness Scale integration is set up."
+            f"Device {device_entry.name or device_id} is not an Etekcity Fitness Scale"
         )
+
+    def _get_single_device_id(call: ServiceCall) -> str:
+        """Extract device_id from service call target."""
+        from homeassistant.exceptions import HomeAssistantError
+
+        device_ids = []
+
+        # When target: is defined in services.yaml, Home Assistant processes it
+        # and makes it available via call.service_data or call.data
+        # Try multiple locations where it might be stored
+        
+        # 1. Check call.service_data (processed target data)
+        if hasattr(call, "service_data"):
+            service_data = call.service_data
+            if isinstance(service_data, dict):
+                target = service_data.get("target", {})
+                if isinstance(target, dict):
+                    device_ids = target.get("device_id", [])
+        
+        # 2. Check call.data["target"] (raw YAML format)
+        if not device_ids:
+            target = call.data.get("target")
+            if isinstance(target, dict):
+                # Handle both formats:
+                # target: {device_id: "abc123"} or target: {device_id: ["abc123"]}
+                device_id_val = target.get("device_id")
+                if device_id_val:
+                    if isinstance(device_id_val, list):
+                        device_ids = device_id_val
+                    elif isinstance(device_id_val, str):
+                        device_ids = [device_id_val]
+            elif isinstance(target, list):
+                device_ids = target
+        
+        # 3. Check call.target attribute (if ServiceCall has it)
+        if not device_ids and hasattr(call, "target"):
+            target_obj = call.target
+            if hasattr(target_obj, "device_id"):
+                device_id_val = target_obj.device_id
+                device_ids = device_id_val if isinstance(device_id_val, list) else [device_id_val]
+            elif hasattr(target_obj, "device_ids"):
+                device_ids = target_obj.device_ids
+        
+        # 4. Check if device_id is directly in call.data (fallback for manual calls)
+        if not device_ids:
+            device_id = call.data.get("device_id")
+            if device_id:
+                device_ids = [device_id] if isinstance(device_id, str) else device_id
+
+        # Ensure it's a list
+        if not isinstance(device_ids, list):
+            device_ids = [device_ids] if device_ids else []
+
+        if not device_ids:
+            # Debug: log what we actually received to help diagnose
+            _LOGGER.debug(
+                "Service call - data: %s, has service_data: %s, has target attr: %s",
+                call.data,
+                hasattr(call, "service_data"),
+                hasattr(call, "target"),
+            )
+            if hasattr(call, "service_data"):
+                _LOGGER.debug("Service call service_data: %s", call.service_data)
+            raise HomeAssistantError(
+                "No scale device specified. Use 'target' with a device_id in the service call. "
+                "Example YAML format:\n"
+                "target:\n"
+                "  device_id: ['your-device-id']\n"
+                "data:\n"
+                "  timestamp: '...'\n"
+                "  user_id: '...'"
+            )
+        if len(device_ids) != 1:
+            raise HomeAssistantError(
+                f"Exactly one scale device must be specified in target, got {len(device_ids)}"
+            )
+        return str(device_ids[0])
 
     # Register services
     async def handle_assign_measurement(call: ServiceCall) -> None:
         """Handle the assign_measurement service call."""
         from homeassistant.exceptions import HomeAssistantError
 
+        device_id = _get_single_device_id(call)
+
         timestamp = call.data[ATTR_TIMESTAMP]
         user_id = call.data[ATTR_USER_ID]
 
         _LOGGER.debug(
-            "Service call: assign_measurement(timestamp=%s, user_id=%s)",
+            "Service call assign_measurement on device %s timestamp=%s user_id=%s",
+            device_id,
             timestamp,
             user_id,
         )
 
-        # Find coordinator and validate user exists
-        coord = _get_coordinator_and_validate_users([user_id])
+        coord = _get_coordinator_for_device(device_id)
+
+        # Validate user exists on this scale
+        valid_user_ids = [p.get(CONF_USER_ID) for p in coord.get_user_profiles()]
+        if user_id not in valid_user_ids:
+            raise HomeAssistantError(f"User {user_id} not found for selected scale")
 
         # Assign the pending measurement
-        success = coord.assign_pending_measurement(timestamp, user_id)
-        if success:
-            _LOGGER.info(
-                "Successfully assigned measurement %s to user %s",
-                timestamp,
-                user_id,
-            )
-        else:
-            _LOGGER.warning(
-                "Failed to assign measurement %s to user %s",
-                timestamp,
-                user_id,
-            )
+        if not coord.assign_pending_measurement(timestamp, user_id):
             raise HomeAssistantError(
-                f"Failed to assign measurement {timestamp} to user {user_id}. "
-                f"Check that the timestamp exists in pending measurements."
+                f"Failed assigning timestamp {timestamp} to user {user_id}. "
+                "Check pending measurements for this scale."
             )
 
     async def handle_reassign_measurement(call: ServiceCall) -> None:
         """Handle the reassign_measurement service call."""
         from homeassistant.exceptions import HomeAssistantError
 
+        device_id = _get_single_device_id(call)
+
         from_user_id = call.data[ATTR_FROM_USER_ID]
         to_user_id = call.data[ATTR_TO_USER_ID]
 
-        _LOGGER.debug(
-            "Service call: reassign_measurement(from_user_id=%s, to_user_id=%s)",
-            from_user_id,
-            to_user_id,
-        )
+        coord = _get_coordinator_for_device(device_id)
 
-        # Find coordinator and validate both users exist
-        coord = _get_coordinator_and_validate_users([from_user_id, to_user_id])
+        for uid in (from_user_id, to_user_id):
+            if uid not in [p.get(CONF_USER_ID) for p in coord.get_user_profiles()]:
+                raise HomeAssistantError(f"User {uid} not found for selected scale")
 
-        # Reassign the measurement
-        success = coord.reassign_user_measurement(from_user_id, to_user_id)
-        if success:
-            _LOGGER.info(
-                "Successfully reassigned measurement from user %s to user %s",
-                from_user_id,
-                to_user_id,
-            )
-        else:
-            _LOGGER.warning(
-                "Failed to reassign measurement from user %s to user %s",
-                from_user_id,
-                to_user_id,
-            )
+        if not coord.reassign_user_measurement(from_user_id, to_user_id):
             raise HomeAssistantError(
-                f"Failed to reassign measurement from user {from_user_id} to user {to_user_id}. "
-                f"Check that the source user has a recent measurement."
+                "Failed to reassign measurement. Ensure source user has a recent measurement."
             )
 
     async def handle_remove_measurement(call: ServiceCall) -> None:
         """Handle the remove_measurement service call."""
         from homeassistant.exceptions import HomeAssistantError
 
+        device_id = _get_single_device_id(call)
+
         user_id = call.data[ATTR_USER_ID]
+        coord = _get_coordinator_for_device(device_id)
 
-        _LOGGER.debug(
-            "Service call: remove_measurement(user_id=%s)",
-            user_id,
-        )
+        if user_id not in [p.get(CONF_USER_ID) for p in coord.get_user_profiles()]:
+            raise HomeAssistantError(f"User {user_id} not found for selected scale")
 
-        # Find coordinator and validate user exists
-        coord = _get_coordinator_and_validate_users([user_id])
-
-        # Remove the measurement
-        success = coord.remove_user_measurement(user_id)
-        if success:
-            _LOGGER.info(
-                "Successfully removed measurement for user %s",
-                user_id,
-            )
-        else:
-            _LOGGER.warning(
-                "Failed to remove measurement for user %s",
-                user_id,
-            )
+        if not coord.remove_user_measurement(user_id):
             raise HomeAssistantError(
-                f"Failed to remove measurement for user {user_id}. "
-                f"Check that the user has a recent measurement to remove."
+                "Failed to remove measurement. Ensure the user has a recent measurement."
             )
 
     # Register the services on first setup

@@ -567,8 +567,12 @@ class ScaleOptionsFlow(OptionsFlow):
     """Handle options flow for the scale integration."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+        """Initialize options flow.
+        
+        Note: self.config_entry is automatically provided by OptionsFlow base class.
+        Do not assign it explicitly as it's deprecated in HA 2025.12+.
+        """
+        # Initialize from config_entry data (config_entry parameter is still needed for init)
         self.user_profiles = config_entry.data.get(CONF_USER_PROFILES, [])
         self.display_unit = config_entry.data.get(
             CONF_SCALE_DISPLAY_UNIT, UnitOfMass.KILOGRAMS

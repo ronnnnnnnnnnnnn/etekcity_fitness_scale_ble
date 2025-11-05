@@ -35,6 +35,8 @@ from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr  # NEW import
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 
 from .const import CONF_USER_ID, CONF_USER_NAME, DOMAIN, get_sensor_unique_id
 from .person_detector import PersonDetector
@@ -1010,7 +1012,7 @@ class ScaleDataUpdateCoordinator:
             # Clean up the notification for the oldest measurement
             self._ambiguous_notifications.discard(oldest_timestamp)
             persistent_notification.dismiss(
-                self._hass, f"etekcity_scale_ambiguous_{oldest_timestamp}"
+                self._hass, f"etekcity_scale_{self.address}_{oldest_timestamp}"
             )
 
             _LOGGER.debug(
@@ -1300,6 +1302,14 @@ class ScaleDataUpdateCoordinator:
         # Get entity registry for weight lookups
         entity_reg = er.async_get(self._hass)
 
+        # Resolve device info for notification context
+        device_reg = dr.async_get(self._hass)
+        device_entry = device_reg.async_get_device(
+            connections={(CONNECTION_BLUETOOTH, self.address)}
+        )
+        device_id = device_entry.id if device_entry else "DEVICE_ID"
+        device_name = device_entry.name if device_entry else self._device_name
+
         # Categorize users: matching vs no history
         matching_users = []  # (user_id, weight_diff, user_name)
         no_history_users = []  # (user_id, user_name)
@@ -1409,6 +1419,7 @@ class ScaleDataUpdateCoordinator:
 
         # Build enhanced notification with copy-paste YAML and step-by-step instructions
         message = (
+            f"**Scale: {device_name}**\n\n"
             f"**Multiple users could match this measurement**\n\n"
             f"{measurement_info}  \n"
             f"Timestamp: `{timestamp}`\n\n"
@@ -1420,9 +1431,11 @@ class ScaleDataUpdateCoordinator:
             f"4. Click **Perform Action**\n\n"
             f"```yaml\n"
             f"action: etekcity_fitness_scale_ble.assign_measurement\n"
+            f"target:\n"
+            f"  device_id: {device_id}\n"
             f"data:\n"
-            f'  timestamp: "{timestamp}"\n'
-            f'  user_id: "<SELECT_USER_ID_FROM_ABOVE>"\n'
+            f"  timestamp: \"{timestamp}\"\n"
+            f"  user_id: \"<SELECT_USER_ID_FROM_ABOVE>\"\n"
             f"```\n\n"
             f"*This notification will auto-dismiss once the measurement is assigned.*"
         )
@@ -1433,8 +1446,8 @@ class ScaleDataUpdateCoordinator:
         persistent_notification.create(
             self._hass,
             message,
-            title="⚖️ Etekcity Scale: Choose User",
-            notification_id=f"etekcity_scale_ambiguous_{timestamp}",
+            title=f"⚖️ {device_name}: Choose User",
+            notification_id=f"etekcity_scale_{self.address}_{timestamp}",
         )
 
     def get_user_profiles(self) -> list[dict]:
@@ -1494,7 +1507,7 @@ class ScaleDataUpdateCoordinator:
         # Dismiss the notification
         persistent_notification.dismiss(
             self._hass,
-            notification_id=f"etekcity_scale_ambiguous_{timestamp}",
+            notification_id=f"etekcity_scale_{self.address}_{timestamp}",
         )
 
         # Notify diagnostic sensors about pending measurements update

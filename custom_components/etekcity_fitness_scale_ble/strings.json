@@ -124,6 +124,9 @@
           "scale_display_unit": "Scale Display Unit"
         }
       }
+    },
+    "abort": {
+      "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function."
     }
   },
   "services": {
