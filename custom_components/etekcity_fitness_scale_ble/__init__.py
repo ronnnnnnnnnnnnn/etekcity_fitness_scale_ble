@@ -44,7 +44,7 @@ ATTR_USER_ID = "user_id"
 ATTR_FROM_USER_ID = "from_user_id"
 ATTR_TO_USER_ID = "to_user_id"
 
-# Service schemas (target is defined in services.yaml, not in vol.Schema)
+# Service schemas
 SERVICE_ASSIGN_MEASUREMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_TIMESTAMP): cv.string,
@@ -195,62 +195,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     def _get_single_device_id(call: ServiceCall) -> str:
-        """Extract device_id from service call target."""
+        """Extract a single device_id from a service call."""
         from homeassistant.exceptions import HomeAssistantError
 
-        device_ids = []
+        device_id = call.data.get("device_id")
 
-        # Check multiple possible locations where Home Assistant might put target data
-        # 1. call.data["target"]["device_id"] (when target is passed in data)
-        target = call.data.get("target")
-        if isinstance(target, dict):
-            device_ids = target.get("device_id", [])
-        elif isinstance(target, list):
-            device_ids = target
-        
-        # 2. call.target attribute (if ServiceCall has it)
-        if not device_ids and hasattr(call, "target"):
-            target_obj = call.target
-            if hasattr(target_obj, "device_id"):
-                device_id_val = target_obj.device_id
-                device_ids = device_id_val if isinstance(device_id_val, list) else [device_id_val]
-            elif hasattr(target_obj, "device_ids"):
-                device_ids = target_obj.device_ids
-        
-        # 3. Check if device_id is directly in call.data (fallback for manual calls)
-        if not device_ids:
-            device_id = call.data.get("device_id")
-            if device_id:
-                device_ids = [device_id] if isinstance(device_id, str) else device_id
-
-        # Ensure it's a list
-        if not isinstance(device_ids, list):
-            device_ids = [device_ids] if device_ids else []
-
-        if not device_ids:
-            # Debug: log what we actually received to help diagnose
-            _LOGGER.debug(
-                "Service call - data: %s, has service_data: %s, has target attr: %s",
-                call.data,
-                hasattr(call, "service_data"),
-                hasattr(call, "target"),
-            )
-            if hasattr(call, "service_data"):
-                _LOGGER.debug("Service call service_data: %s", call.service_data)
+        if not device_id:
             raise HomeAssistantError(
-                "No scale device specified. Use 'target' with a device_id in the service call. "
-                "Example YAML format:\n"
-                "target:\n"
-                "  device_id: your-device-id\n"
-                "data:\n"
-                "  timestamp: '...'\n"
-                "  user_id: '...'"
+                "No scale device specified. Include a `device_id` field in the service call."
             )
-        if len(device_ids) != 1:
-            raise HomeAssistantError(
-                f"Exactly one scale device must be specified in target, got {len(device_ids)}"
-            )
-        return str(device_ids[0])
+        if not isinstance(device_id, str):
+            raise HomeAssistantError("`device_id` must be a string.")
+
+        return device_id
 
     # Register services
     async def handle_assign_measurement(call: ServiceCall) -> None:

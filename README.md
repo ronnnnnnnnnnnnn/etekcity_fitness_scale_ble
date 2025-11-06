@@ -86,9 +86,8 @@ Assign a pending (ambiguous) measurement to a specific user. The `timestamp` and
 **Example:**
 ```yaml
 service: etekcity_fitness_scale_ble.assign_measurement
-target:
-  device_id: <your_scale_device_id>
 data:
+  device_id: <your_scale_device_id>
   timestamp: "2025-11-06T15:30:00.123456"
   user_id: "jane"
 ```
@@ -99,9 +98,8 @@ Reassign the most recent measurement from one user to another. This is useful if
 **Example:**
 ```yaml
 service: etekcity_fitness_scale_ble.reassign_measurement
-target:
-  device_id: <your_scale_device_id>
 data:
+  device_id: <your_scale_device_id>
   from_user_id: "john2"
   to_user_id: "jane"
 ```
@@ -112,9 +110,8 @@ Remove the last measurement for a specific user. This will revert the user's sen
 **Example:**
 ```yaml
 service: etekcity_fitness_scale_ble.remove_measurement
-target:
-  device_id: <your_scale_device_id>
 data:
+  device_id: <your_scale_device_id>
   user_id: "john2"
 ```
 

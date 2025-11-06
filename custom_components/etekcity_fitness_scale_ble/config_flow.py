@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 from datetime import datetime
 import logging
-import os
 import re
 import unicodedata
 from typing import TYPE_CHECKING, Any

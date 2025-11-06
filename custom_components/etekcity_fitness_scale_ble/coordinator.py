@@ -1453,9 +1453,8 @@ class ScaleDataUpdateCoordinator:
             f"4. Click **Perform Action**\n\n"
             f"```yaml\n"
             f"action: etekcity_fitness_scale_ble.assign_measurement\n"
-            f"target:\n"
-            f"  device_id: {device_id}\n"
             f"data:\n"
+            f"  device_id: {device_id}\n"
             f"  timestamp: \"{timestamp}\"\n"
             f"  user_id: \"<SELECT_USER_ID_FROM_ABOVE>\"\n"
             f"```\n\n"
@@ -1468,7 +1467,7 @@ class ScaleDataUpdateCoordinator:
         persistent_notification.create(
             self._hass,
             message,
-            title=f"⚖️ {device_name}: Choose User",
+            title=f"{device_name}: Choose User",
             notification_id=f"etekcity_scale_{self.address}_{timestamp}",
         )
 
