@@ -260,7 +260,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "No scale device specified. Use 'target' with a device_id in the service call. "
                 "Example YAML format:\n"
                 "target:\n"
-                "  device_id: ['your-device-id']\n"
+                "  device_id: your-device-id\n"
                 "data:\n"
                 "  timestamp: '...'\n"
                 "  user_id: '...'"

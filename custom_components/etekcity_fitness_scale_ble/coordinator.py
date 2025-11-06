@@ -1142,10 +1142,10 @@ class ScaleDataUpdateCoordinator:
             elif ambiguous_user_ids:
                 ordered_matches.extend(ambiguous_user_ids)
             
-            # Add users without history after likely matches
-            for user_id in users_without_history:
-                if user_id not in ordered_matches:
-                    ordered_matches.append(user_id)
+            # Add users without history after likely matches (avoid duplicates)
+            ordered_matches.extend(
+                uid for uid in users_without_history if uid not in ordered_matches
+            )
             
             timestamp = datetime.now().isoformat()
             # Store only raw measurements (body metrics will be calculated on assignment)
@@ -1394,7 +1394,6 @@ class ScaleDataUpdateCoordinator:
         # Sort matching users by weight difference (closest first)
         matching_users.sort(key=lambda x: x[1])
 
-        # Check if we have exactly one candidate - auto-assign if so
         total_candidates = len(matching_users) + len(no_history_users)
         if total_candidates == 1:
             # Single candidate - auto-assign without notification
