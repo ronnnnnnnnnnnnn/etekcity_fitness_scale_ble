@@ -7,7 +7,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 ## Features
 
 - Automatic discovery of Etekcity BLE fitness scales
-- Multi-user support with automatic person detection based on weight history and Home Assistant person location.
+- Multi-user support with automatic person detection based on weight history and Home Assistant person location
 - Real-time weight and impedance measurements
 - Optional body composition metrics calculation including:
     - Body Mass Index (BMI)
