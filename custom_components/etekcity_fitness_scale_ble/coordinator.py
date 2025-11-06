@@ -1092,68 +1092,111 @@ class ScaleDataUpdateCoordinator:
             weight_kg, self._user_profiles
         )
 
-        # Handle detection results
+        # Check which users have measurement history
+        users_with_history = self._person_detector.get_users_with_history(
+            self._user_profiles
+        )
+        users_without_history = [
+            u.get(CONF_USER_ID)
+            for u in self._user_profiles
+            if u.get(CONF_USER_ID) and u.get(CONF_USER_ID) not in users_with_history
+        ]
+
+        # Compile list of all possible matches:
+        # - Likely matches from detector (detected_user_id or ambiguous_user_ids)
+        # - All users without history (always included)
+        all_possible_matches = set()
+        
+        # Add likely matches from detector
         if detected_user_id:
-            # Single user detected - route to that user
-            self._route_to_user(detected_user_id, data)
+            # Single match from detector
+            all_possible_matches.add(detected_user_id)
         elif ambiguous_user_ids:
-            # Multiple users match - store as pending and notify
+            # Multiple matches from detector
+            all_possible_matches.update(ambiguous_user_ids)
+        
+        # Always include users without history in the list
+        all_possible_matches.update(users_without_history)
+        
+        # Convert to list for consistent ordering
+        all_possible_matches = list(all_possible_matches)
+
+        # Handle detection results
+        if len(all_possible_matches) == 1:
+            # Exactly one possible match - auto-assign
+            auto_assign_user_id = all_possible_matches[0]
+            _LOGGER.debug(
+                "Single possible match (user %s) - auto-assigning measurement (weight: %.2f kg)",
+                auto_assign_user_id,
+                weight_kg,
+            )
+            self._route_to_user(auto_assign_user_id, data)
+        elif len(all_possible_matches) > 1:
+            # Multiple possible matches - store as pending and notify
+            # Order: likely matches first (from detector), then users without history
+            ordered_matches = []
+            
+            # Add likely matches from detector first (ranked by likelihood)
+            if detected_user_id:
+                ordered_matches.append(detected_user_id)
+            elif ambiguous_user_ids:
+                ordered_matches.extend(ambiguous_user_ids)
+            
+            # Add users without history after likely matches
+            for user_id in users_without_history:
+                if user_id not in ordered_matches:
+                    ordered_matches.append(user_id)
+            
             timestamp = datetime.now().isoformat()
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
             self._pending_measurements[timestamp] = (
                 weight_kg,
                 raw_measurements,
-                ambiguous_user_ids,
+                ordered_matches,
             )
 
             # Keep only last N pending measurements (FIFO cleanup)
             self._cleanup_old_pending_measurements()
 
             self._create_ambiguous_notification(
-                weight_kg, impedance, ambiguous_user_ids, timestamp
+                weight_kg, impedance, ordered_matches, timestamp
             )
 
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
         else:
-            # No user detected - could be first measurement or out of tolerance
+            # No possible matches (shouldn't happen, but handle gracefully)
+            # Include all users in notification
             _LOGGER.debug(
-                "No user detected for measurement (weight: %.2f kg)",
+                "No possible matches found for measurement (weight: %.2f kg) - including all users",
                 weight_kg,
             )
 
-            # If we have user profiles configured, treat this as ambiguous
-            # (helps with first-time measurements)
-            if self._user_profiles:
+            # Get all user IDs as potential matches
+            all_user_ids = [
+                u.get(CONF_USER_ID) for u in self._user_profiles if u.get(CONF_USER_ID)
+            ]
+
+            if all_user_ids:
                 timestamp = datetime.now().isoformat()
-                # Get all user IDs as potential matches
-                all_user_ids = [
-                    u.get("user_id") for u in self._user_profiles if u.get("user_id")
-                ]
+                # Store only raw measurements (body metrics will be calculated on assignment)
+                raw_measurements = self._extract_raw_measurements(data)
+                self._pending_measurements[timestamp] = (
+                    weight_kg,
+                    raw_measurements,
+                    all_user_ids,
+                )
 
-                if all_user_ids:
-                    # Store only raw measurements (body metrics will be calculated on assignment)
-                    raw_measurements = self._extract_raw_measurements(data)
-                    self._pending_measurements[timestamp] = (
-                        weight_kg,
-                        raw_measurements,
-                        all_user_ids,
-                    )
+                # Keep only last N pending measurements (FIFO cleanup)
+                self._cleanup_old_pending_measurements()
 
-                    # Keep only last N pending measurements (FIFO cleanup)
-                    self._cleanup_old_pending_measurements()
+                self._create_ambiguous_notification(
+                    weight_kg, impedance, all_user_ids, timestamp
+                )
 
-                    self._create_ambiguous_notification(
-                        weight_kg, impedance, all_user_ids, timestamp
-                    )
-
-                    # Notify diagnostic sensors about pending measurements update
-                    self._notify_diagnostic_sensors()
-
-                    _LOGGER.debug(
-                        "Created notification for unmatched measurement (could be first-time or out of tolerance)"
-                    )
+                # Notify diagnostic sensors about pending measurements update
+                self._notify_diagnostic_sensors()
 
     def _route_to_user(self, user_id: str, data: ScaleData) -> None:
         """Route measurement to a specific user's sensors.

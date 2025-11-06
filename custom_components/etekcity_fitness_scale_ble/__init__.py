@@ -291,9 +291,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coord = _get_coordinator_for_device(device_id)
 
         # Validate user exists on this scale
-        valid_user_ids = [p.get(CONF_USER_ID) for p in coord.get_user_profiles()]
+        valid_user_ids = [
+            p.get(CONF_USER_ID) for p in coord.get_user_profiles() if p.get(CONF_USER_ID)
+        ]
         if user_id not in valid_user_ids:
-            raise HomeAssistantError(f"User {user_id} not found for selected scale")
+            # Provide helpful error with available users
+            user_names = [
+                f"{p.get(CONF_USER_NAME, 'Unknown')} ({p.get(CONF_USER_ID)})"
+                for p in coord.get_user_profiles()
+                if p.get(CONF_USER_ID)
+            ]
+            raise HomeAssistantError(
+                f"User {user_id} not found for selected scale. "
+                f"Available users: {', '.join(user_names) if user_names else 'none'}"
+            )
+
+        # Validate timestamp exists in pending measurements
+        pending_measurements = coord.get_pending_measurements()
+        if timestamp not in pending_measurements:
+            available_timestamps = sorted(pending_measurements.keys(), reverse=True)[:5]
+            timestamp_list = ", ".join(f"'{ts}'" for ts in available_timestamps)
+            raise HomeAssistantError(
+                f"Timestamp {timestamp} not found in pending measurements for this scale. "
+                f"{f'Available timestamps: {timestamp_list}' if available_timestamps else 'No pending measurements available.'}"
+            )
 
         # Assign the pending measurement
         if not coord.assign_pending_measurement(timestamp, user_id):
@@ -313,9 +334,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         coord = _get_coordinator_for_device(device_id)
 
+        # Validate both users exist on this scale
+        valid_user_ids = [
+            p.get(CONF_USER_ID) for p in coord.get_user_profiles() if p.get(CONF_USER_ID)
+        ]
         for uid in (from_user_id, to_user_id):
-            if uid not in [p.get(CONF_USER_ID) for p in coord.get_user_profiles()]:
-                raise HomeAssistantError(f"User {uid} not found for selected scale")
+            if uid not in valid_user_ids:
+                user_names = [
+                    f"{p.get(CONF_USER_NAME, 'Unknown')} ({p.get(CONF_USER_ID)})"
+                    for p in coord.get_user_profiles()
+                    if p.get(CONF_USER_ID)
+                ]
+                raise HomeAssistantError(
+                    f"User {uid} not found for selected scale. "
+                    f"Available users: {', '.join(user_names) if user_names else 'none'}"
+                )
 
         if not coord.reassign_user_measurement(from_user_id, to_user_id):
             raise HomeAssistantError(
@@ -331,8 +364,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         user_id = call.data[ATTR_USER_ID]
         coord = _get_coordinator_for_device(device_id)
 
-        if user_id not in [p.get(CONF_USER_ID) for p in coord.get_user_profiles()]:
-            raise HomeAssistantError(f"User {user_id} not found for selected scale")
+        # Validate user exists on this scale
+        valid_user_ids = [
+            p.get(CONF_USER_ID) for p in coord.get_user_profiles() if p.get(CONF_USER_ID)
+        ]
+        if user_id not in valid_user_ids:
+            user_names = [
+                f"{p.get(CONF_USER_NAME, 'Unknown')} ({p.get(CONF_USER_ID)})"
+                for p in coord.get_user_profiles()
+                if p.get(CONF_USER_ID)
+            ]
+            raise HomeAssistantError(
+                f"User {user_id} not found for selected scale. "
+                f"Available users: {', '.join(user_names) if user_names else 'none'}"
+            )
 
         if not coord.remove_user_measurement(user_id):
             raise HomeAssistantError(
