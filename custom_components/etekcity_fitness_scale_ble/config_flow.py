@@ -598,7 +598,7 @@ class ScaleOptionsFlow(OptionsFlow):
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow.
-        
+
         Note: self.config_entry is automatically provided by OptionsFlow base class.
         Do not assign it explicitly as it's deprecated in HA 2025.12+.
         """

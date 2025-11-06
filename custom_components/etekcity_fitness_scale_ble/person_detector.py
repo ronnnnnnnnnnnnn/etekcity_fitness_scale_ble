@@ -207,33 +207,33 @@ class PersonDetector:
 
     def get_users_with_history(self, user_profiles: list[dict]) -> list[str]:
         """Get list of user IDs that have previous weight measurements.
-        
+
         Args:
             user_profiles: List of user profile dictionaries with user_id.
-            
+
         Returns:
             List of user IDs that have weight sensor history.
         """
         users_with_history = []
-        
+
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
             if not user_id:
                 continue
-            
+
             # Construct unique_id for weight sensor
             sensor_unique_id = get_sensor_unique_id(
                 self._device_name, user_id, "weight"
             )
-            
+
             # Look up entity_id
             sensor_entity_id = self._entity_reg.async_get_entity_id(
                 "sensor", self._domain, sensor_unique_id
             )
-            
+
             if not sensor_entity_id:
                 continue
-            
+
             # Check if sensor has a valid state
             sensor_state = self.hass.states.get(sensor_entity_id)
             if sensor_state and sensor_state.state not in ("unknown", "unavailable"):
@@ -244,5 +244,5 @@ class PersonDetector:
                 except (ValueError, TypeError):
                     # Invalid state value
                     continue
-        
+
         return users_with_history

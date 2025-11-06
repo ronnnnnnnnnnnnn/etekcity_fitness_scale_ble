@@ -230,7 +230,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Validate user exists on this scale
         valid_user_ids = [
-            p.get(CONF_USER_ID) for p in coord.get_user_profiles() if p.get(CONF_USER_ID)
+            p.get(CONF_USER_ID)
+            for p in coord.get_user_profiles()
+            if p.get(CONF_USER_ID)
         ]
         if user_id not in valid_user_ids:
             # Provide helpful error with available users
@@ -274,7 +276,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Validate both users exist on this scale
         valid_user_ids = [
-            p.get(CONF_USER_ID) for p in coord.get_user_profiles() if p.get(CONF_USER_ID)
+            p.get(CONF_USER_ID)
+            for p in coord.get_user_profiles()
+            if p.get(CONF_USER_ID)
         ]
         for uid in (from_user_id, to_user_id):
             if uid not in valid_user_ids:
@@ -304,7 +308,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Validate user exists on this scale
         valid_user_ids = [
-            p.get(CONF_USER_ID) for p in coord.get_user_profiles() if p.get(CONF_USER_ID)
+            p.get(CONF_USER_ID)
+            for p in coord.get_user_profiles()
+            if p.get(CONF_USER_ID)
         ]
         if user_id not in valid_user_ids:
             user_names = [

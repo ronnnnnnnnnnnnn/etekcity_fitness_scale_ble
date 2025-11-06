@@ -1106,7 +1106,7 @@ class ScaleDataUpdateCoordinator:
         # - Likely matches from detector (detected_user_id or ambiguous_user_ids)
         # - All users without history (always included)
         all_possible_matches = set()
-        
+
         # Add likely matches from detector
         if detected_user_id:
             # Single match from detector
@@ -1114,10 +1114,10 @@ class ScaleDataUpdateCoordinator:
         elif ambiguous_user_ids:
             # Multiple matches from detector
             all_possible_matches.update(ambiguous_user_ids)
-        
+
         # Always include users without history in the list
         all_possible_matches.update(users_without_history)
-        
+
         # If no possible matches were found (e.g., out of tolerance for all users with history)
         # then per the requirement, we make all users possible matches.
         if not all_possible_matches:
@@ -1147,18 +1147,18 @@ class ScaleDataUpdateCoordinator:
             # Multiple possible matches - store as pending and notify
             # Order: likely matches first (from detector), then users without history
             ordered_matches = []
-            
+
             # Add likely matches from detector first (ranked by likelihood)
             if detected_user_id:
                 ordered_matches.append(detected_user_id)
             elif ambiguous_user_ids:
                 ordered_matches.extend(ambiguous_user_ids)
-            
+
             # Add users without history after likely matches (avoid duplicates)
             ordered_matches.extend(
                 uid for uid in users_without_history if uid not in ordered_matches
             )
-            
+
             timestamp = datetime.now().isoformat()
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
@@ -1455,8 +1455,8 @@ class ScaleDataUpdateCoordinator:
             f"action: etekcity_fitness_scale_ble.assign_measurement\n"
             f"data:\n"
             f"  device_id: {device_id}\n"
-            f"  timestamp: \"{timestamp}\"\n"
-            f"  user_id: \"<SELECT_USER_ID_FROM_ABOVE>\"\n"
+            f'  timestamp: "{timestamp}"\n'
+            f'  user_id: "<SELECT_USER_ID_FROM_ABOVE>"\n'
             f"```\n\n"
             f"*This notification will auto-dismiss once the measurement is assigned.*"
         )
