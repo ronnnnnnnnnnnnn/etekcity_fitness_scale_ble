@@ -7,6 +7,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 ## Features
 
 - Automatic discovery of Etekcity BLE fitness scales
+- Multi-user support with automatic person detection based on weight history and Home Assistant person location.
 - Real-time weight and impedance measurements
 - Optional body composition metrics calculation including:
     - Body Mass Index (BMI)
@@ -58,6 +59,70 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
         - Enter your date of birth
         - Enter your height
 
+## Multi-User Support
+
+This integration is designed for households with multiple users. You can create a unique profile for each person using the scale.
+
+### Person Detection
+When a new measurement is received, the integration attempts to automatically assign it to the correct person based on two factors:
+1.  **Weight History:** The measurement is compared against each user's last known weight.
+2.  **Location:** If a user profile is linked to a Home Assistant `person` entity, the integration will check if that person is `home`. Users who are `not_home` are excluded from automatic assignment.
+
+If a single user is a clear match, the measurement is assigned automatically. If the measurement is ambiguous (e.g., two users have similar weights, or a new user has no history), a persistent notification will appear in Home Assistant, allowing you to assign it manually using the services below.
+
+### Managing Users
+You can manage user profiles by navigating to your device in **Settings > Devices & Services > Etekcity Fitness Scale BLE**. Click **CONFIGURE** to:
+- **Add a new user:** Create a new profile.
+- **Edit a user:** Update a user's name, linked person entity, or body metric settings.
+- **Remove a user:** Delete a user's profile and all associated sensor entities.
+
+## Services
+
+The integration provides services to manage measurements, especially for handling ambiguous weigh-ins. You can use these in scripts or automations, or call them directly from **Developer Tools > Actions**.
+
+### `etekcity_fitness_scale_ble.assign_measurement`
+Assign a pending (ambiguous) measurement to a specific user. The `timestamp` and candidate `user_id`s are provided in the persistent notification.
+
+**Example:**
+```yaml
+service: etekcity_fitness_scale_ble.assign_measurement
+target:
+  device_id: <your_scale_device_id>
+data:
+  timestamp: "2025-11-06T15:30:00.123456"
+  user_id: "jane"
+```
+
+### `etekcity_fitness_scale_ble.reassign_measurement`
+Reassign the most recent measurement from one user to another. This is useful if a measurement was automatically but incorrectly assigned.
+
+**Example:**
+```yaml
+service: etekcity_fitness_scale_ble.reassign_measurement
+target:
+  device_id: <your_scale_device_id>
+data:
+  from_user_id: "john2"
+  to_user_id: "jane"
+```
+
+### `etekcity_fitness_scale_ble.remove_measurement`
+Remove the last measurement for a specific user. This will revert the user's sensors to their previous values.
+
+**Example:**
+```yaml
+service: etekcity_fitness_scale_ble.remove_measurement
+target:
+  device_id: <your_scale_device_id>
+data:
+  user_id: "john2"
+```
+
+## Diagnostic Sensors
+
+The integration creates two diagnostic sensors to provide visibility into its state:
+- **User Directory:** Shows the number of configured user profiles and lists their details (including `user_id`) in the attributes.
+- **Pending Measurements:** Shows the number of ambiguous measurements awaiting manual assignment and lists their timestamps in the attributes.
 
 ## Supported Devices
 
