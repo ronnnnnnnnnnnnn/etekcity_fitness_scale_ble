@@ -876,10 +876,27 @@ class ScaleOptionsFlow(OptionsFlow):
 
             # Check if body metrics is being enabled/disabled
             body_metrics_enabled = user_input.get(CONF_BODY_METRICS_ENABLED, False)
+            currently_enabled = current_user.get(CONF_BODY_METRICS_ENABLED, False)
 
-            if body_metrics_enabled and not current_user.get(
-                CONF_BODY_METRICS_ENABLED, False
-            ):
+            # If disabling body metrics, remove associated entities
+            if not body_metrics_enabled and currently_enabled:
+                _LOGGER.debug(
+                    "Body metrics disabled for user %s, removing entities.",
+                    selected_user_id,
+                )
+                entity_reg = er.async_get(self.hass)
+                device_name = self.config_entry.title
+                for desc in SENSOR_DESCRIPTIONS:
+                    unique_id = get_sensor_unique_id(
+                        device_name, selected_user_id, desc.key
+                    )
+                    if entity_id := entity_reg.async_get_entity_id(
+                        "sensor", DOMAIN, unique_id
+                    ):
+                        _LOGGER.debug("Removing entity %s", entity_id)
+                        entity_reg.async_remove(entity_id)
+
+            if body_metrics_enabled and not currently_enabled:
                 # Enabling body metrics - store basic info and proceed to body metrics step
                 self.context["edit_user_input"] = user_input
                 return await self.async_step_edit_user_body_metrics()
