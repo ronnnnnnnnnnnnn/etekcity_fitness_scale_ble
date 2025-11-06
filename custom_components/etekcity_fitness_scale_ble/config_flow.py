@@ -5,8 +5,10 @@ from __future__ import annotations
 import dataclasses
 from datetime import datetime
 import logging
+import os
+import re
+import unicodedata
 from typing import TYPE_CHECKING, Any
-import uuid
 
 import voluptuous as vol
 
@@ -39,6 +41,32 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_SLUG_RE = re.compile(r"[^a-z0-9]")
+
+
+def _create_user_id(display_name: str, existing_profiles: list[dict]) -> str:
+    """Create a unique, human-readable user ID from a display name."""
+    base = (
+        _SLUG_RE.sub(
+            "",
+            unicodedata.normalize("NFKD", display_name)
+            .encode("ascii", "ignore")
+            .decode()
+            .lower(),
+        )
+        or "user"
+    )
+
+    existing_ids = {p[CONF_USER_ID] for p in existing_profiles}
+
+    slug = base
+    idx = 2
+    while slug in existing_ids:
+        slug = f"{base}{idx}"
+        idx += 1
+
+    return slug
 
 
 def _validate_user_id_unique(
@@ -273,7 +301,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # No body metrics - create entry with basic user profile
             user_profile = {
-                CONF_USER_ID: str(uuid.uuid4()),
+                CONF_USER_ID: _create_user_id(user_input[CONF_USER_NAME], []),
                 CONF_USER_NAME: user_input[CONF_USER_NAME],
                 CONF_PERSON_ENTITY: user_input.get(CONF_PERSON_ENTITY),
                 CONF_BODY_METRICS_ENABLED: False,
@@ -335,7 +363,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # Create user profile with body metrics
             user_profile = {
-                CONF_USER_ID: str(uuid.uuid4()),
+                CONF_USER_ID: _create_user_id(self.context[CONF_USER_NAME], []),
                 CONF_USER_NAME: self.context[CONF_USER_NAME],
                 CONF_PERSON_ENTITY: self.context.get(CONF_PERSON_ENTITY),
                 CONF_BODY_METRICS_ENABLED: True,
@@ -623,13 +651,11 @@ class ScaleOptionsFlow(OptionsFlow):
                 return await self.async_step_add_user_body_metrics()
 
             # Generate new user_id
-            new_user_id = str(uuid.uuid4())
+            new_user_id = _create_user_id(user_name, self.user_profiles)
 
-            # Validate uniqueness (defensive, should always pass with UUID4)
+            # Validate uniqueness (defensive, should always pass with slug logic)
             if not _validate_user_id_unique(new_user_id, self.user_profiles):
-                _LOGGER.error(
-                    "Generated duplicate user_id (extremely rare): %s", new_user_id
-                )
+                _LOGGER.error("Generated duplicate user_id: %s", new_user_id)
                 return self.async_abort(reason="user_id_generation_failed")
 
             # No body metrics - create basic user profile
@@ -702,13 +728,11 @@ class ScaleOptionsFlow(OptionsFlow):
                 )
 
             # Generate new user_id
-            new_user_id = str(uuid.uuid4())
+            new_user_id = _create_user_id(user_name, self.user_profiles)
 
-            # Validate uniqueness (defensive, should always pass with UUID4)
+            # Validate uniqueness (defensive, should always pass with slug logic)
             if not _validate_user_id_unique(new_user_id, self.user_profiles):
-                _LOGGER.error(
-                    "Generated duplicate user_id (extremely rare): %s", new_user_id
-                )
+                _LOGGER.error("Generated duplicate user_id: %s", new_user_id)
                 return self.async_abort(reason="user_id_generation_failed")
 
             # Create user profile with body metrics
