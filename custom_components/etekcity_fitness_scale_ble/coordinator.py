@@ -1118,7 +1118,14 @@ class ScaleDataUpdateCoordinator:
         # Always include users without history in the list
         all_possible_matches.update(users_without_history)
         
-        # Convert to list for consistent ordering
+        # If no possible matches were found (e.g., out of tolerance for all users with history)
+        # then per the requirement, we make all users possible matches.
+        if not all_possible_matches:
+            all_possible_matches.update(
+                u.get(CONF_USER_ID) for u in self._user_profiles if u.get(CONF_USER_ID)
+            )
+
+        # Convert to list for consistent ordering and processing
         all_possible_matches = list(all_possible_matches)
 
         # Handle detection results
