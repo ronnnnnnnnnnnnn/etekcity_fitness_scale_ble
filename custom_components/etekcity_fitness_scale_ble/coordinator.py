@@ -1078,7 +1078,7 @@ class ScaleDataUpdateCoordinator:
 
         # Smart detection logic: Single user auto-assign (skip detection)
         if len(self._user_profiles) == 1:
-            user_id = self._user_profiles[0].get("user_id")
+            user_id = self._user_profiles[0].get(CONF_USER_ID)
             _LOGGER.debug(
                 "Single user detected, auto-assigning measurement to user %s (weight: %.2f kg)",
                 user_id,
@@ -1172,38 +1172,6 @@ class ScaleDataUpdateCoordinator:
 
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
-        else:
-            # No possible matches (shouldn't happen, but handle gracefully)
-            # Include all users in notification
-            _LOGGER.debug(
-                "No possible matches found for measurement (weight: %.2f kg) - including all users",
-                weight_kg,
-            )
-
-            # Get all user IDs as potential matches
-            all_user_ids = [
-                u.get(CONF_USER_ID) for u in self._user_profiles if u.get(CONF_USER_ID)
-            ]
-
-            if all_user_ids:
-                timestamp = datetime.now().isoformat()
-                # Store only raw measurements (body metrics will be calculated on assignment)
-                raw_measurements = self._extract_raw_measurements(data)
-                self._pending_measurements[timestamp] = (
-                    weight_kg,
-                    raw_measurements,
-                    all_user_ids,
-                )
-
-                # Keep only last N pending measurements (FIFO cleanup)
-                self._cleanup_old_pending_measurements()
-
-                self._create_ambiguous_notification(
-                    weight_kg, impedance, all_user_ids, timestamp
-                )
-
-                # Notify diagnostic sensors about pending measurements update
-                self._notify_diagnostic_sensors()
 
     def _route_to_user(self, user_id: str, data: ScaleData) -> None:
         """Route measurement to a specific user's sensors.

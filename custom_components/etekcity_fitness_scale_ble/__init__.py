@@ -200,34 +200,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         device_ids = []
 
-        # When target: is defined in services.yaml, Home Assistant processes it
-        # and makes it available via call.service_data or call.data
-        # Try multiple locations where it might be stored
+        # Check multiple possible locations where Home Assistant might put target data
+        # 1. call.data["target"]["device_id"] (when target is passed in data)
+        target = call.data.get("target")
+        if isinstance(target, dict):
+            device_ids = target.get("device_id", [])
+        elif isinstance(target, list):
+            device_ids = target
         
-        # 1. Check call.service_data (processed target data)
-        if hasattr(call, "service_data"):
-            service_data = call.service_data
-            if isinstance(service_data, dict):
-                target = service_data.get("target", {})
-                if isinstance(target, dict):
-                    device_ids = target.get("device_id", [])
-        
-        # 2. Check call.data["target"] (raw YAML format)
-        if not device_ids:
-            target = call.data.get("target")
-            if isinstance(target, dict):
-                # Handle both formats:
-                # target: {device_id: "abc123"} or target: {device_id: ["abc123"]}
-                device_id_val = target.get("device_id")
-                if device_id_val:
-                    if isinstance(device_id_val, list):
-                        device_ids = device_id_val
-                    elif isinstance(device_id_val, str):
-                        device_ids = [device_id_val]
-            elif isinstance(target, list):
-                device_ids = target
-        
-        # 3. Check call.target attribute (if ServiceCall has it)
+        # 2. call.target attribute (if ServiceCall has it)
         if not device_ids and hasattr(call, "target"):
             target_obj = call.target
             if hasattr(target_obj, "device_id"):
@@ -236,7 +217,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             elif hasattr(target_obj, "device_ids"):
                 device_ids = target_obj.device_ids
         
-        # 4. Check if device_id is directly in call.data (fallback for manual calls)
+        # 3. Check if device_id is directly in call.data (fallback for manual calls)
         if not device_ids:
             device_id = call.data.get("device_id")
             if device_id:
