@@ -796,14 +796,22 @@ class ScaleOptionsFlow(OptionsFlow):
     ) -> FlowResult:
         """Select user to edit."""
         if user_input is not None:
+            selected = user_input["user_id"]
+            if selected == "__legacy__":
+                selected = ""  # map back to real legacy ID
             # Store selected user ID and proceed to edit details
-            self.context["selected_user_id"] = user_input["user_id"]
+            self.context["selected_user_id"] = selected
             return await self.async_step_edit_user_details()
 
         # Build user selection
-        user_options = {
-            user[CONF_USER_ID]: user[CONF_USER_NAME] for user in self.user_profiles
-        }
+        user_options: dict[str, str] = {}
+        legacy_placeholder = "__legacy__"
+        for user in self.user_profiles:
+            uid = user[CONF_USER_ID]
+            if uid == "":
+                user_options[legacy_placeholder] = user[CONF_USER_NAME]
+            else:
+                user_options[uid] = user[CONF_USER_NAME]
 
         return self.async_show_form(
             step_id="edit_user",
