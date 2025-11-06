@@ -1128,6 +1128,11 @@ class ScaleDataUpdateCoordinator:
         # Convert to list for consistent ordering and processing
         all_possible_matches = list(all_possible_matches)
 
+        # Apply location-based filtering as the final step
+        all_possible_matches = self._person_detector._filter_candidates_by_location(
+            all_possible_matches, self._user_profiles
+        )
+
         # Handle detection results
         if len(all_possible_matches) == 1:
             # Exactly one possible match - auto-assign

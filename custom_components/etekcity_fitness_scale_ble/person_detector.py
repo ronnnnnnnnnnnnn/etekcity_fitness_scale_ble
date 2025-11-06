@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.helpers import entity_registry as er
 
-from .const import get_sensor_unique_id
+from .const import CONF_PERSON_ENTITY, get_sensor_unique_id
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -34,6 +34,64 @@ class PersonDetector:
         self._domain = domain
         # Cache entity registry for performance (avoid lookup on every detection)
         self._entity_reg = er.async_get(hass)
+
+    def _filter_candidates_by_location(
+        self, candidate_ids: list[str], user_profiles: list[dict]
+    ) -> list[str]:
+        """Filter a list of candidates by their Home Assistant person entity state.
+
+        Args:
+            candidate_ids: A list of user_ids to filter.
+            user_profiles: The full list of user profiles to look up person entities.
+
+        Returns:
+            A filtered list of user_ids, excluding anyone who is 'not_home'.
+            If filtering results in an empty list, returns the original list.
+        """
+        # Create a quick lookup map for profiles
+        profiles_by_id = {p.get("user_id"): p for p in user_profiles}
+
+        filtered_candidates = []
+        for user_id in candidate_ids:
+            profile = profiles_by_id.get(user_id)
+            if not profile:
+                continue
+
+            person_entity_id = profile.get(CONF_PERSON_ENTITY)
+            if not person_entity_id:
+                # If no person is linked, we can't filter, so keep them
+                filtered_candidates.append(user_id)
+                continue
+
+            person_state = self.hass.states.get(person_entity_id)
+            if not person_state:
+                _LOGGER.debug(
+                    "Person entity %s not found for user %s, keeping as candidate.",
+                    person_entity_id,
+                    user_id,
+                )
+                filtered_candidates.append(user_id)
+                continue
+
+            if person_state.state.lower() == "not_home":
+                _LOGGER.debug(
+                    "Excluding user %s from candidates because they are not home (state: %s)",
+                    user_id,
+                    person_state.state,
+                )
+                continue  # Exclude this user
+
+            # Keep the user if they are home or state is not 'not_home'
+            filtered_candidates.append(user_id)
+
+        # Edge case: if filtering removed everyone, return the original list
+        if not filtered_candidates and candidate_ids:
+            _LOGGER.debug(
+                "Location filter removed all candidates; falling back to original list to prevent data loss."
+            )
+            return candidate_ids
+
+        return filtered_candidates
 
     def detect_person(
         self, weight_kg: float, user_profiles: list[dict]
