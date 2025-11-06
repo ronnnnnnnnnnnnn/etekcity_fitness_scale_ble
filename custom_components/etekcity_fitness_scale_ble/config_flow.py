@@ -20,6 +20,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_ADDRESS, CONF_UNIT_SYSTEM, UnitOfLength, UnitOfMass
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv, selector
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_conversion import DistanceConverter
 
 from .const import (
@@ -38,7 +39,9 @@ from .const import (
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     DOMAIN,
+    get_sensor_unique_id,
 )
+from .sensor import SENSOR_DESCRIPTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1043,8 +1046,29 @@ class ScaleOptionsFlow(OptionsFlow):
             return self.async_abort(reason="cannot_remove_last_user")
 
         if user_input is not None:
-            # Remove the selected user
             selected_user_id = user_input["user_id"]
+
+            # Clean up entities for the user being removed
+            entity_reg = er.async_get(self.hass)
+            device_name = self.config_entry.title
+
+            # Get all possible sensor keys
+            all_sensor_keys = [desc.key for desc in SENSOR_DESCRIPTIONS]
+            all_sensor_keys.extend(["weight", "impedance"])  # Add base sensors
+
+            for sensor_key in all_sensor_keys:
+                unique_id = get_sensor_unique_id(
+                    device_name, selected_user_id, sensor_key
+                )
+                if entity_id := entity_reg.async_get_entity_id(
+                    "sensor", DOMAIN, unique_id
+                ):
+                    _LOGGER.debug(
+                        "Removing entity %s for user %s", entity_id, selected_user_id
+                    )
+                    entity_reg.async_remove(entity_id)
+
+            # Remove the selected user from profiles
             updated_profiles = [
                 user
                 for user in self.user_profiles
