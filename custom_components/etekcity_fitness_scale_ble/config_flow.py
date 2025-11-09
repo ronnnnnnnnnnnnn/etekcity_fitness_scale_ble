@@ -1071,6 +1071,8 @@ class ScaleOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             selected_user_id = user_input["user_id"]
+            if selected_user_id == "__legacy__":
+                selected_user_id = ""  # map back to real legacy ID
 
             # Clean up entities for the user being removed
             entity_reg = er.async_get(self.hass)
@@ -1111,9 +1113,14 @@ class ScaleOptionsFlow(OptionsFlow):
             return self.async_create_entry(title="", data={})
 
         # Build user selection
-        user_options = {
-            user[CONF_USER_ID]: user[CONF_USER_NAME] for user in self.user_profiles
-        }
+        user_options: dict[str, str] = {}
+        legacy_placeholder = "__legacy__"
+        for user in self.user_profiles:
+            uid = user[CONF_USER_ID]
+            if uid == "":
+                user_options[legacy_placeholder] = user[CONF_USER_NAME]
+            else:
+                user_options[uid] = user[CONF_USER_NAME]
 
         return self.async_show_form(
             step_id="remove_user",
