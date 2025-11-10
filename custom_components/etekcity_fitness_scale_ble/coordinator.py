@@ -1473,8 +1473,8 @@ class ScaleDataUpdateCoordinator:
             f"action: etekcity_fitness_scale_ble.assign_measurement\n"
             f"data:\n"
             f"  device_id: {device_id}\n"
-            f"  timestamp: \"{timestamp}\"\n"
-            f"  user_id: \"<SELECT_USER_ID_FROM_ABOVE>\"\n"
+            f'  timestamp: "{timestamp}"\n'
+            f'  user_id: "<SELECT_USER_ID_FROM_ABOVE>"\n'
             f"```\n\n"
             "This notification will auto-dismiss once the measurement is assigned."
         )
@@ -1606,7 +1606,9 @@ class ScaleDataUpdateCoordinator:
                             if sensor_key == "weight":
                                 # For weight, convert to kg (native unit) if needed
                                 value = float(sensor_state.state)
-                                unit = sensor_state.attributes.get("unit_of_measurement")
+                                unit = sensor_state.attributes.get(
+                                    "unit_of_measurement"
+                                )
                                 if unit == UnitOfMass.POUNDS:
                                     # Convert pounds to kilograms (native unit)
                                     value = MassConverter.convert(
@@ -1617,7 +1619,7 @@ class ScaleDataUpdateCoordinator:
                                 # For impedance, use value as-is (no unit conversion)
                                 value = float(sensor_state.state)
                                 measurements[sensor_key] = value
-                            
+
                             _LOGGER.debug(
                                 "Retrieved %s from sensor state for user %s: %s",
                                 sensor_key,

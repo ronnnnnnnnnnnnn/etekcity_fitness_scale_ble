@@ -55,7 +55,9 @@ class PersonDetector:
             unit = sensor_state.attributes.get("unit_of_measurement")
             if unit == UnitOfMass.POUNDS:
                 # Convert pounds to kilograms
-                return MassConverter.convert(value, UnitOfMass.POUNDS, UnitOfMass.KILOGRAMS)
+                return MassConverter.convert(
+                    value, UnitOfMass.POUNDS, UnitOfMass.KILOGRAMS
+                )
             # Assume kilograms (native unit) if unit is kg or not specified
             return value
         except (ValueError, TypeError, AttributeError):
