@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.const import UnitOfMass
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_conversion import MassConverter
 
 from .const import CONF_PERSON_ENTITY, get_sensor_unique_id
 
@@ -34,6 +36,30 @@ class PersonDetector:
         self._domain = domain
         # Cache entity registry for performance (avoid lookup on every detection)
         self._entity_reg = er.async_get(hass)
+
+    def sensor_state_to_kg(self, sensor_state) -> float | None:
+        """Convert sensor state value to kilograms for comparison.
+
+        Home Assistant converts sensor.state for display when suggested_unit_of_measurement
+        is set. This helper ensures we always compare in the native unit (kg).
+
+        Args:
+            sensor_state: The sensor state object from hass.states.get()
+
+        Returns:
+            Weight in kilograms, or None if conversion failed.
+        """
+        try:
+            value = float(sensor_state.state)
+            # Check the displayed unit (may differ from native unit)
+            unit = sensor_state.attributes.get("unit_of_measurement")
+            if unit == UnitOfMass.POUNDS:
+                # Convert pounds to kilograms
+                return MassConverter.convert(value, UnitOfMass.POUNDS, UnitOfMass.KILOGRAMS)
+            # Assume kilograms (native unit) if unit is kg or not specified
+            return value
+        except (ValueError, TypeError, AttributeError):
+            return None
 
     def _filter_candidates_by_location(
         self, candidate_ids: list[str], user_profiles: list[dict]
@@ -119,7 +145,7 @@ class PersonDetector:
 
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
-            if not user_id:
+            if user_id is None:
                 continue
 
             # Construct unique_id for weight sensor using helper function
@@ -151,9 +177,9 @@ class PersonDetector:
                 )
                 continue
 
-            try:
-                last_weight_kg = float(sensor_state.state)
-            except (ValueError, TypeError):
+            # Convert sensor state to kg (handles unit conversion if display unit is pounds)
+            last_weight_kg = self.sensor_state_to_kg(sensor_state)
+            if last_weight_kg is None:
                 _LOGGER.warning(
                     "Invalid weight value for user %s: %s",
                     user_profile.get("name", user_id),
@@ -218,7 +244,7 @@ class PersonDetector:
 
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
-            if not user_id:
+            if user_id is None:
                 continue
 
             # Construct unique_id for weight sensor

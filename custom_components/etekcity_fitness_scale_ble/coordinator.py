@@ -37,6 +37,8 @@ from homeassistant.components import persistent_notification
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr  # NEW import
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.const import UnitOfMass
+from homeassistant.util.unit_conversion import MassConverter
 
 from .const import CONF_USER_ID, CONF_USER_NAME, DOMAIN, get_sensor_unique_id
 from .person_detector import PersonDetector
@@ -1099,7 +1101,8 @@ class ScaleDataUpdateCoordinator:
         users_without_history = [
             u.get(CONF_USER_ID)
             for u in self._user_profiles
-            if u.get(CONF_USER_ID) and u.get(CONF_USER_ID) not in users_with_history
+            if u.get(CONF_USER_ID) is not None
+            and u.get(CONF_USER_ID) not in users_with_history
         ]
 
         # Compile list of all possible matches:
@@ -1122,16 +1125,21 @@ class ScaleDataUpdateCoordinator:
         # then per the requirement, we make all users possible matches.
         if not all_possible_matches:
             all_possible_matches.update(
-                u.get(CONF_USER_ID) for u in self._user_profiles if u.get(CONF_USER_ID)
+                u.get(CONF_USER_ID)
+                for u in self._user_profiles
+                if u.get(CONF_USER_ID) is not None
             )
 
         # Convert to list for consistent ordering and processing
         all_possible_matches = list(all_possible_matches)
 
-        # Apply location-based filtering as the final step
-        all_possible_matches = self._person_detector._filter_candidates_by_location(
+        # Apply location-based filtering as the final step, but ensure we don't end up with zero
+        filtered_matches = self._person_detector._filter_candidates_by_location(
             all_possible_matches, self._user_profiles
         )
+
+        if filtered_matches:
+            all_possible_matches = filtered_matches
 
         # Handle detection results
         if len(all_possible_matches) == 1:
@@ -1145,34 +1153,21 @@ class ScaleDataUpdateCoordinator:
             self._route_to_user(auto_assign_user_id, data)
         elif len(all_possible_matches) > 1:
             # Multiple possible matches - store as pending and notify
-            # Order: likely matches first (from detector), then users without history
-            ordered_matches = []
-
-            # Add likely matches from detector first (ranked by likelihood)
-            if detected_user_id:
-                ordered_matches.append(detected_user_id)
-            elif ambiguous_user_ids:
-                ordered_matches.extend(ambiguous_user_ids)
-
-            # Add users without history after likely matches (avoid duplicates)
-            ordered_matches.extend(
-                uid for uid in users_without_history if uid not in ordered_matches
-            )
-
+            # The `all_possible_matches` list is now the definitive list of candidates.
             timestamp = datetime.now().isoformat()
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
             self._pending_measurements[timestamp] = (
                 weight_kg,
                 raw_measurements,
-                ordered_matches,
+                all_possible_matches,  # Use the corrected list
             )
 
             # Keep only last N pending measurements (FIFO cleanup)
             self._cleanup_old_pending_measurements()
 
             self._create_ambiguous_notification(
-                weight_kg, impedance, ordered_matches, timestamp
+                weight_kg, impedance, all_possible_matches, timestamp
             )
 
             # Notify diagnostic sensors about pending measurements update
@@ -1312,11 +1307,11 @@ class ScaleDataUpdateCoordinator:
 
         Filters and ranks users intelligently:
         1. First shows users matching within tolerance (sorted by closeness)
-        2. Then shows users with no previous measurements
+        2. Then shows all other potential candidates.
 
         Args:
             weight_kg: The measured weight in kg.
-            ambiguous_user_ids: list of user IDs that could match (includes all users if any lack history).
+            ambiguous_user_ids: list of user IDs that could match.
             timestamp: Timestamp of the measurement.
             impedance: Optional impedance measurement in ohms.
         """
@@ -1333,62 +1328,87 @@ class ScaleDataUpdateCoordinator:
         device_id = device_entry.id if device_entry else "DEVICE_ID"
         device_name = device_entry.name if device_entry else self._device_name
 
-        # Categorize users: matching vs no history
+        # Helper to convert weight to configured unit for display
+        def _format_weight(value_kg: float, precision: int = 2) -> str:
+            if self._display_unit == WeightUnit.LB:
+                value = MassConverter.convert(
+                    value_kg, UnitOfMass.KILOGRAMS, UnitOfMass.POUNDS
+                )
+                unit = "lb"
+            else:
+                value = value_kg
+                unit = "kg"
+            fmt = f"{value:.{precision}f} {unit}"
+            return fmt
+
+        # Categorize users: those within tolerance vs all others
         matching_users = []  # (user_id, weight_diff, user_name)
-        no_history_users = []  # (user_id, user_name)
+        other_users = []  # (user_id, user_name)
 
         for user_id in ambiguous_user_ids:
             user_profile = self._user_profiles_by_id.get(user_id)
             if not user_profile:
                 continue
 
-            user_name = user_profile.get("name", user_id)
+            user_name = user_profile.get(CONF_USER_NAME, user_id)
 
-            # Look up user's current weight
-            sensor_unique_id = get_sensor_unique_id(
-                self._device_name, user_id, "weight"
-            )
-            sensor_entity_id = entity_reg.async_get_entity_id(
-                "sensor", DOMAIN, sensor_unique_id
-            )
-
-            if not sensor_entity_id:
-                no_history_users.append((user_id, user_name))
-                continue
-
-            sensor_state = self._hass.states.get(sensor_entity_id)
-            if not sensor_state or sensor_state.state in ("unknown", "unavailable"):
-                no_history_users.append((user_id, user_name))
-                continue
-
+            # Try to find user's current weight to calculate a difference
+            weight_diff = None
             try:
-                last_weight_kg = float(sensor_state.state)
-                weight_diff = abs(weight_kg - last_weight_kg)
+                sensor_unique_id = get_sensor_unique_id(
+                    self._device_name, user_id, "weight"
+                )
+                sensor_entity_id = entity_reg.async_get_entity_id(
+                    "sensor", DOMAIN, sensor_unique_id
+                )
 
-                # Only include if within tolerance
-                if weight_diff <= WEIGHT_TOLERANCE_KG:
-                    matching_users.append((user_id, weight_diff, user_name))
-            except (ValueError, TypeError):
-                no_history_users.append((user_id, user_name))
+                if sensor_entity_id:
+                    sensor_state = self._hass.states.get(sensor_entity_id)
+                    if sensor_state and sensor_state.state not in (
+                        "unknown",
+                        "unavailable",
+                    ):
+                        # Convert sensor state to kg (handles unit conversion if display unit is pounds)
+                        last_weight_kg = self._person_detector.sensor_state_to_kg(
+                            sensor_state
+                        )
+                        if last_weight_kg is not None:
+                            weight_diff = abs(weight_kg - last_weight_kg)
+                        else:
+                            weight_diff = None
+                    else:
+                        weight_diff = None
+                else:
+                    weight_diff = None
+            except (ValueError, TypeError, AttributeError):
+                weight_diff = None  # Treat parse errors as no valid history
+
+            if weight_diff is not None and weight_diff <= WEIGHT_TOLERANCE_KG:
+                matching_users.append((user_id, weight_diff, user_name))
+            else:
+                other_users.append((user_id, user_name))
 
         # Sort matching users by weight difference (closest first)
         matching_users.sort(key=lambda x: x[1])
 
-        total_candidates = len(matching_users) + len(no_history_users)
+        # Sort other users alphabetically by name
+        other_users.sort(key=lambda x: x[1])
+
+        total_candidates = len(matching_users) + len(other_users)
         if total_candidates == 1:
             # Single candidate - auto-assign without notification
             if matching_users:
                 auto_assign_user_id = matching_users[0][0]
                 auto_assign_user_name = matching_users[0][2]
-                weight_diff = matching_users[0][1]
+                diff = matching_users[0][1]
                 _LOGGER.debug(
                     "Single candidate after filtering, auto-assigning to %s (weight diff: ±%.2f kg)",
                     auto_assign_user_name,
-                    weight_diff,
+                    diff,
                 )
             else:
-                auto_assign_user_id = no_history_users[0][0]
-                auto_assign_user_name = no_history_users[0][1]
+                auto_assign_user_id = other_users[0][0]
+                auto_assign_user_name = other_users[0][1]
                 _LOGGER.debug(
                     "Single candidate with no history, auto-assigning to %s",
                     auto_assign_user_name,
@@ -1410,55 +1430,53 @@ class ScaleDataUpdateCoordinator:
                 if impedance is not None:
                     raw_measurements["impedance"] = impedance
 
-            # Route to the single candidate user
+            # Create ScaleData and route to user
             scale_data = ScaleData(measurements=raw_measurements)
             self._route_to_user(auto_assign_user_id, scale_data)
             return
 
-        # Build user list with sections
+        # Build the user list for the notification message
         user_list_items = []
-
         if matching_users:
-            user_list_items.append("**Likely matches (by weight):**")
-            for user_id, weight_diff, user_name in matching_users:
+            user_list_items.append("**Possible Matches:**")
+            for user_id, diff, user_name in matching_users:
                 user_list_items.append(
-                    f"- **{user_name}** (`{user_id}`) — ±{weight_diff:.1f} kg"
+                    f"- **{user_name}** (`{user_id}`) — ±{_format_weight(diff, 1)}"
                 )
 
-        if no_history_users:
-            if matching_users:
-                user_list_items.append("")  # Blank line separator
-            user_list_items.append("**No previous measurements:**")
-            for user_id, user_name in no_history_users:
+        if other_users:
+            if not user_list_items:
+                user_list_items.append("**Possible Matches:**")
+
+            for user_id, user_name in other_users:
                 user_list_items.append(f"- **{user_name}** (`{user_id}`)")
 
-        user_list = "\n".join(user_list_items)
+        user_list_str = "\n".join(user_list_items)
 
         # Build measurement info
-        measurement_info = f"Weight: **{weight_kg:.2f} kg**"
+        measurement_info = f"Weight: **{_format_weight(weight_kg)}**"
         if impedance is not None:
             measurement_info += f"  \nImpedance: **{impedance:.0f} Ω**"
 
-        # Build enhanced notification with copy-paste YAML and step-by-step instructions
         message = (
             f"**Scale: {device_name}**\n\n"
             f"**Multiple users could match this measurement**\n\n"
-            f"{measurement_info}  \n"
+            f"{measurement_info}\n"
             f"Timestamp: `{timestamp}`\n\n"
-            f"{user_list}\n\n"
-            f"**To assign this measurement:**\n\n"
-            f"1. Copy the service call below\n"
-            f"2. Go to **Developer Tools → Actions**\n"
-            f"3. Paste and select the correct `user_id`\n"
-            f"4. Click **Perform Action**\n\n"
+            f"{user_list_str}\n\n"
+            "**To assign this measurement:**\n"
+            "1. Copy the service call below\n"
+            "2. Go to **Developer Tools → Actions**\n"
+            "3. Paste and select the correct `user_id`\n"
+            "4. Click **Perform Action**\n\n"
             f"```yaml\n"
             f"action: etekcity_fitness_scale_ble.assign_measurement\n"
             f"data:\n"
             f"  device_id: {device_id}\n"
-            f'  timestamp: "{timestamp}"\n'
-            f'  user_id: "<SELECT_USER_ID_FROM_ABOVE>"\n'
+            f"  timestamp: \"{timestamp}\"\n"
+            f"  user_id: \"<SELECT_USER_ID_FROM_ABOVE>\"\n"
             f"```\n\n"
-            f"*This notification will auto-dismiss once the measurement is assigned.*"
+            "This notification will auto-dismiss once the measurement is assigned."
         )
 
         # Track this ambiguous notification
@@ -1585,16 +1603,28 @@ class ScaleDataUpdateCoordinator:
                         "unavailable",
                     ):
                         try:
-                            # Parse the sensor value
-                            value = float(sensor_state.state)
-                            measurements[sensor_key] = value
+                            if sensor_key == "weight":
+                                # For weight, convert to kg (native unit) if needed
+                                value = float(sensor_state.state)
+                                unit = sensor_state.attributes.get("unit_of_measurement")
+                                if unit == UnitOfMass.POUNDS:
+                                    # Convert pounds to kilograms (native unit)
+                                    value = MassConverter.convert(
+                                        value, UnitOfMass.POUNDS, UnitOfMass.KILOGRAMS
+                                    )
+                                measurements[sensor_key] = value
+                            else:
+                                # For impedance, use value as-is (no unit conversion)
+                                value = float(sensor_state.state)
+                                measurements[sensor_key] = value
+                            
                             _LOGGER.debug(
                                 "Retrieved %s from sensor state for user %s: %s",
                                 sensor_key,
                                 from_user_id,
-                                value,
+                                measurements[sensor_key],
                             )
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError, AttributeError):
                             # Skip sensors that can't be parsed
                             pass
 
