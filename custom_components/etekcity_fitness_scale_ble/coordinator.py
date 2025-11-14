@@ -635,7 +635,7 @@ class ScaleDataUpdateCoordinator:
         self._hass = hass
         self._device_name = device_name
         self._lock = asyncio.Lock()
-        self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
+        self._listeners: dict[Callable[[ScaleData], None], Callable[[ScaleData], None]] = {}
         # User-specific callback registry: user_id -> list of callbacks
         self._user_callbacks: dict[str, list[Callable[[ScaleData], None]]] = {}
         self._user_profiles = user_profiles
@@ -666,9 +666,9 @@ class ScaleDataUpdateCoordinator:
             )
 
         self._person_detector = PersonDetector(hass, device_name, DOMAIN)
-        # Pending measurements awaiting manual assignment: {timestamp: (weight_kg, raw_measurements_dict, ambiguous_user_ids)}
+        # Pending measurements awaiting manual assignment: {timestamp: (raw_measurements_dict, ambiguous_user_ids)}
         # raw_measurements_dict contains only weight and impedance (body metrics calculated on assignment)
-        self._pending_measurements: dict[str, tuple[float, dict, list[str]]] = {}
+        self._pending_measurements: dict[str, tuple[dict, list[str]]] = {}
         # Storage for reassignment/removal features
         self._last_user_measurement: dict[
             str, dict
@@ -1158,7 +1158,6 @@ class ScaleDataUpdateCoordinator:
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
             self._pending_measurements[timestamp] = (
-                weight_kg,
                 raw_measurements,
                 all_possible_matches,  # Use the corrected list
             )
@@ -1218,61 +1217,15 @@ class ScaleDataUpdateCoordinator:
                 impedance = data.measurements.get("impedance")
 
                 if weight_kg and impedance:
-                    # Validate required profile fields
                     birthdate_str = user_profile.get("birthdate")
-                    if not birthdate_str:
-                        _LOGGER.warning(
-                            "Missing birthdate for user %s, cannot calculate body metrics",
-                            user_id,
-                        )
-                        return
+                    if isinstance(birthdate_str, str):
+                        birthdate = dt_date.fromisoformat(birthdate_str)
+                    else:
+                        birthdate = birthdate_str
 
-                    # Parse birthdate with error handling
-                    try:
-                        if isinstance(birthdate_str, str):
-                            birthdate = dt_date.fromisoformat(birthdate_str)
-                        else:
-                            birthdate = birthdate_str
-                    except (ValueError, TypeError) as ex:
-                        _LOGGER.error(
-                            "Invalid birthdate format for user %s: %s (error: %s)",
-                            user_id,
-                            birthdate_str,
-                            ex,
-                        )
-                        return
-
-                    # Parse sex with validation
                     sex_str = user_profile.get("sex", "Male")
-                    if sex_str not in ("Male", "Female"):
-                        _LOGGER.warning(
-                            "Invalid sex value for user %s: %s, defaulting to Male",
-                            user_id,
-                            sex_str,
-                        )
-                        sex_str = "Male"
                     sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
-
-                    # Get and validate height
-                    height_cm = user_profile.get("height")
-                    if not height_cm or not isinstance(height_cm, (int, float)):
-                        _LOGGER.warning(
-                            "Invalid or missing height for user %s: %s, defaulting to 170cm",
-                            user_id,
-                            height_cm,
-                        )
-                        height_cm = 170
-                    elif height_cm < 50 or height_cm > 300:
-                        _LOGGER.warning(
-                            "Height out of realistic range for user %s: %d cm, clamping to 100-250cm",
-                            user_id,
-                            height_cm,
-                        )
-                        height_cm = max(100, min(250, height_cm))
-
-                    height_m = height_cm / 100.0
-
-                    # Calculate body metrics
+                    height_m = user_profile.get("height") / 100.0
                     age = _calc_age(birthdate)
                     body_metrics = BodyMetrics(weight_kg, height_m, age, sex, impedance)
                     metrics_dict = _as_dictionary(body_metrics)
@@ -1417,7 +1370,7 @@ class ScaleDataUpdateCoordinator:
             # Get raw measurements before removing from pending
             raw_measurements = {}
             if timestamp in self._pending_measurements:
-                _, raw_measurements, _ = self._pending_measurements[timestamp]
+                raw_measurements, _ = self._pending_measurements[timestamp]
                 # Remove from pending
                 del self._pending_measurements[timestamp]
                 self._ambiguous_notifications.discard(timestamp)
@@ -1438,7 +1391,7 @@ class ScaleDataUpdateCoordinator:
         # Build the user list for the notification message
         user_list_items = []
         if matching_users:
-            user_list_items.append("**Possible Matches:**")
+            user_list_items.append("**Candidates:**")
             for user_id, diff, user_name in matching_users:
                 user_list_items.append(
                     f"- **{user_name}** (`{user_id}`) — ±{_format_weight(diff, 1)}"
@@ -1446,7 +1399,7 @@ class ScaleDataUpdateCoordinator:
 
         if other_users:
             if not user_list_items:
-                user_list_items.append("**Possible Matches:**")
+                user_list_items.append("**Candidates:**")
 
             for user_id, user_name in other_users:
                 user_list_items.append(f"- **{user_name}** (`{user_id}`)")
@@ -1497,11 +1450,11 @@ class ScaleDataUpdateCoordinator:
         """
         return self._user_profiles
 
-    def get_pending_measurements(self) -> dict[str, tuple[float, dict, list[str]]]:
+    def get_pending_measurements(self) -> dict[str, tuple[dict, list[str]]]:
         """Get all pending measurements.
 
         Returns:
-            Dictionary mapping timestamp to (weight_kg, raw_measurements_dict, candidate_user_ids).
+            Dictionary mapping timestamp to (raw_measurements_dict, candidate_user_ids).
         """
         return self._pending_measurements
 
@@ -1527,12 +1480,12 @@ class ScaleDataUpdateCoordinator:
             _LOGGER.warning("No pending measurement found for timestamp: %s", timestamp)
             return False
 
-        weight_kg, measurements, _ = self._pending_measurements.pop(timestamp)
+        measurements, _ = self._pending_measurements.pop(timestamp)
         _LOGGER.debug(
             "Manually assigned measurement from %s to user %s (weight: %.2f kg)",
             timestamp,
             user_id,
-            weight_kg,
+            measurements.get("weight"),
         )
 
         # Create a ScaleData object with raw measurements and route to the user

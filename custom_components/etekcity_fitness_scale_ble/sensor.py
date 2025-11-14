@@ -901,13 +901,12 @@ class ScalePendingMeasurementsSensor(SensorEntity):
         """Return pending measurements as attributes."""
         pending_data = []
         for timestamp, (
-            weight_kg,
             raw_measurements,
             _,
         ) in self._coordinator.get_pending_measurements().items():
             measurement = {
                 "timestamp": timestamp,
-                "weight_kg": weight_kg,
+                "weight_kg": raw_measurements.get("weight"),
             }
             # Add impedance if available
             if "impedance" in raw_measurements:

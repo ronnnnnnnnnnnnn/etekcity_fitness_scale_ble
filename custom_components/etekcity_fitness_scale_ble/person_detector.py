@@ -34,7 +34,6 @@ class PersonDetector:
         self.hass = hass
         self._device_name = device_name
         self._domain = domain
-        # Cache entity registry for performance (avoid lookup on every detection)
         self._entity_reg = er.async_get(hass)
 
     def sensor_state_to_kg(self, sensor_state) -> float | None:
