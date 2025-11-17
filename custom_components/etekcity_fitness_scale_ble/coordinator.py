@@ -635,9 +635,7 @@ class ScaleDataUpdateCoordinator:
         self._hass = hass
         self._device_name = device_name
         self._lock = asyncio.Lock()
-        self._listeners: dict[
-            Callable[[ScaleData], None], Callable[[ScaleData], None]
-        ] = {}
+        self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
         # User-specific callback registry: user_id -> list of callbacks
         self._user_callbacks: dict[str, list[Callable[[ScaleData], None]]] = {}
         self._user_profiles = user_profiles
