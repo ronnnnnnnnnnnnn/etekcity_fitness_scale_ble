@@ -73,7 +73,11 @@
         "data": {
           "user_name": "User Name",
           "person_entity": "Person Entity (optional)",
+          "mobile_notify_services": "Mobile Devices (optional)",
           "body_metrics_enabled": "Enable body composition metrics"
+        },
+        "data_description": {
+          "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll use the Home Assistant persistent notification instead."
         }
       },
       "add_user_body_metrics": {
@@ -98,7 +102,11 @@
         "data": {
           "user_name": "User Name",
           "person_entity": "Person Entity (optional)",
+          "mobile_notify_services": "Mobile Devices (optional)",
           "body_metrics_enabled": "Enable body composition metrics"
+        },
+        "data_description": {
+          "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll use the Home Assistant persistent notification instead."
         }
       },
       "edit_user_body_metrics": {

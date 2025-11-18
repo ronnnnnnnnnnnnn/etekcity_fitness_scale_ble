@@ -30,6 +30,7 @@ from .const import (
     CONF_FEET,
     CONF_HEIGHT,
     CONF_INCHES,
+    CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
     CONF_SEX,
@@ -45,6 +46,26 @@ from .sensor import SENSOR_DESCRIPTIONS
 _LOGGER = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"[^a-z0-9]")
+
+
+def _get_mobile_notify_services(hass) -> dict[str, str]:
+    """Discover available mobile_app notify services.
+
+    Returns:
+        Dict mapping service_name -> display_name (e.g., "mobile_app_johns_iphone" -> "Johns iPhone")
+    """
+    services = {}
+    notify_services = hass.services.async_services().get("notify", {})
+
+    for service_name in notify_services.keys():
+        if service_name.startswith("mobile_app_"):
+            # Format: "mobile_app_johns_iphone" -> "Johns iPhone"
+            display_name = (
+                service_name.replace("mobile_app_", "").replace("_", " ").title()
+            )
+            services[service_name] = display_name
+
+    return services
 
 
 def _create_user_id(display_name: str, existing_profiles: list[dict]) -> str:
@@ -631,14 +652,26 @@ class ScaleOptionsFlow(OptionsFlow):
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
             if not _validate_user_name_not_empty(user_name):
-                # Re-show form with error (ordered: name → person link → features)
+                # Re-show form with error (ordered: name → person link → mobile devices → features)
+                available_mobile_services = _get_mobile_notify_services(self.hass)
+
                 schema = {
                     vol.Required(CONF_USER_NAME): str,
                     vol.Optional(CONF_PERSON_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="person")
                     ),
-                    vol.Required(CONF_BODY_METRICS_ENABLED, default=False): cv.boolean,
                 }
+
+                # Add mobile notify services selector if any are available
+                if available_mobile_services:
+                    schema[vol.Optional(CONF_MOBILE_NOTIFY_SERVICES)] = cv.multi_select(
+                        available_mobile_services
+                    )
+
+                schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
+                    cv.boolean
+                )
+
                 return self.async_show_form(
                     step_id="add_user",
                     data_schema=vol.Schema(schema),
@@ -650,6 +683,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 # Store basic user info in options context and proceed to body metrics
                 self.context[CONF_USER_NAME] = user_name
                 self.context[CONF_PERSON_ENTITY] = user_input.get(CONF_PERSON_ENTITY)
+                self.context[CONF_MOBILE_NOTIFY_SERVICES] = user_input.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                )
                 return await self.async_step_add_user_body_metrics()
 
             # Generate new user_id
@@ -665,6 +701,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_USER_ID: new_user_id,
                 CONF_USER_NAME: user_name,
                 CONF_PERSON_ENTITY: user_input.get(CONF_PERSON_ENTITY),
+                CONF_MOBILE_NOTIFY_SERVICES: user_input.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                ),
                 CONF_BODY_METRICS_ENABLED: False,
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -684,14 +723,23 @@ class ScaleOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data={})
 
-        # Build schema (ordered: name → person link → features)
+        # Build schema (ordered: name → person link → mobile devices → features)
+        available_mobile_services = _get_mobile_notify_services(self.hass)
+
         schema = {
             vol.Required(CONF_USER_NAME): str,
             vol.Optional(CONF_PERSON_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="person")
             ),
-            vol.Required(CONF_BODY_METRICS_ENABLED, default=False): cv.boolean,
         }
+
+        # Add mobile notify services selector if any are available
+        if available_mobile_services:
+            schema[vol.Optional(CONF_MOBILE_NOTIFY_SERVICES)] = cv.multi_select(
+                available_mobile_services
+            )
+
+        schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_user",
@@ -742,6 +790,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_USER_ID: new_user_id,
                 CONF_USER_NAME: user_name,
                 CONF_PERSON_ENTITY: self.context.get(CONF_PERSON_ENTITY),
+                CONF_MOBILE_NOTIFY_SERVICES: self.context.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                ),
                 CONF_BODY_METRICS_ENABLED: True,
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
@@ -840,8 +891,13 @@ class ScaleOptionsFlow(OptionsFlow):
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
             if not _validate_user_name_not_empty(user_name):
-                # Re-show form with error (ordered: name → person link → features)
+                # Re-show form with error (ordered: name → person link → mobile devices → features)
                 current_person = current_user.get(CONF_PERSON_ENTITY)
+                current_mobile_services = current_user.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                )
+                available_mobile_services = _get_mobile_notify_services(self.hass)
+
                 schema = {
                     vol.Required(
                         CONF_USER_NAME, default=current_user[CONF_USER_NAME]
@@ -859,6 +915,14 @@ class ScaleOptionsFlow(OptionsFlow):
                     schema[vol.Optional(CONF_PERSON_ENTITY)] = selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="person")
                     )
+
+                # Add mobile notify services selector if any are available
+                if available_mobile_services:
+                    schema[
+                        vol.Optional(
+                            CONF_MOBILE_NOTIFY_SERVICES, default=current_mobile_services
+                        )
+                    ] = cv.multi_select(available_mobile_services)
 
                 # Add body metrics toggle last
                 schema[
@@ -906,6 +970,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 **current_user,
                 CONF_USER_NAME: user_name,
                 CONF_PERSON_ENTITY: user_input.get(CONF_PERSON_ENTITY),
+                CONF_MOBILE_NOTIFY_SERVICES: user_input.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                ),
                 CONF_BODY_METRICS_ENABLED: body_metrics_enabled,
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
@@ -931,8 +998,10 @@ class ScaleOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data={})
 
-        # Build schema (ordered: name → person link → features)
+        # Build schema (ordered: name → person link → mobile devices → features)
         current_person = current_user.get(CONF_PERSON_ENTITY)
+        current_mobile_services = current_user.get(CONF_MOBILE_NOTIFY_SERVICES, [])
+        available_mobile_services = _get_mobile_notify_services(self.hass)
 
         schema = {
             vol.Required(CONF_USER_NAME, default=current_user[CONF_USER_NAME]): str,
@@ -947,6 +1016,14 @@ class ScaleOptionsFlow(OptionsFlow):
             schema[vol.Optional(CONF_PERSON_ENTITY)] = selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="person")
             )
+
+        # Add mobile notify services selector if any are available
+        if available_mobile_services:
+            schema[
+                vol.Optional(
+                    CONF_MOBILE_NOTIFY_SERVICES, default=current_mobile_services
+                )
+            ] = cv.multi_select(available_mobile_services)
 
         # Add body metrics toggle last
         schema[

@@ -20,6 +20,7 @@ from .const import (
     CONF_CALC_BODY_METRICS,
     CONF_CREATED_AT,
     CONF_HEIGHT,
+    CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
     CONF_SEX,
@@ -149,6 +150,26 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             notification_id="etekcity_scale_migration_v2",
         )
 
+    if entry.version == 2:
+        _LOGGER.info("Migrating config entry from version 2 to version 3")
+
+        # Copy existing data
+        new_data = {**entry.data}
+
+        # Add mobile_notify_services field to each user profile
+        user_profiles = new_data.get(CONF_USER_PROFILES, [])
+        for user_profile in user_profiles:
+            if CONF_MOBILE_NOTIFY_SERVICES not in user_profile:
+                user_profile[CONF_MOBILE_NOTIFY_SERVICES] = []
+                _LOGGER.debug(
+                    "Added mobile_notify_services field to user %s",
+                    user_profile.get(CONF_USER_NAME, "unknown"),
+                )
+
+        # Update the entry
+        hass.config_entries.async_update_entry(entry, data=new_data, version=3)
+        _LOGGER.info("Migration of config entry to version 3 completed successfully")
+
     return True
 
 
@@ -156,7 +177,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up scale from a config entry."""
 
     # Migrate config entry if needed
-    if entry.version < 2:
+    if entry.version < 3:
         if not await async_migrate_entry(hass, entry):
             _LOGGER.error("Migration failed for config entry")
             return False
