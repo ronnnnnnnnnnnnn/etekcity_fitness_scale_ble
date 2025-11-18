@@ -44,7 +44,8 @@
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "unknown": "[%key:common::config_flow::error::unknown%]",
-      "empty_user_name": "User name cannot be empty. Please provide a valid name."
+      "empty_user_name": "User name cannot be empty. Please provide a valid name.",
+      "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
     },
     "abort": {
       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
@@ -132,6 +133,10 @@
           "scale_display_unit": "Scale Display Unit"
         }
       }
+    },
+    "error": {
+      "empty_user_name": "[%key:component::etekcity_fitness_scale_ble::config::error::empty_user_name%]",
+      "duplicate_person_entity": "[%key:component::etekcity_fitness_scale_ble::config::error::duplicate_person_entity%]"
     },
     "abort": {
       "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function."

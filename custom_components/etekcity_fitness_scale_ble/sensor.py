@@ -900,10 +900,11 @@ class ScalePendingMeasurementsSensor(SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return pending measurements as attributes."""
         pending_data = []
-        for timestamp, (
-            raw_measurements,
-            _,
+        for (
+            timestamp,
+            pending_dict,
         ) in self._coordinator.get_pending_measurements().items():
+            raw_measurements = pending_dict["measurements"]
             measurement = {
                 "timestamp": timestamp,
                 "weight_kg": raw_measurements.get("weight"),

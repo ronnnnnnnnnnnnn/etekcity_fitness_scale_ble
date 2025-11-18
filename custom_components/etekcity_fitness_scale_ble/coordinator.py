@@ -40,7 +40,13 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.const import UnitOfMass
 from homeassistant.util.unit_conversion import MassConverter
 
-from .const import CONF_USER_ID, CONF_USER_NAME, DOMAIN, get_sensor_unique_id
+from .const import (
+    CONF_MOBILE_NOTIFY_SERVICES,
+    CONF_USER_ID,
+    CONF_USER_NAME,
+    DOMAIN,
+    get_sensor_unique_id,
+)
 from .person_detector import PersonDetector
 
 SYSTEM = platform.system()
@@ -666,9 +672,13 @@ class ScaleDataUpdateCoordinator:
             )
 
         self._person_detector = PersonDetector(hass, device_name, DOMAIN)
-        # Pending measurements awaiting manual assignment: {timestamp: (raw_measurements_dict, ambiguous_user_ids)}
-        # raw_measurements_dict contains only weight and impedance (body metrics calculated on assignment)
-        self._pending_measurements: dict[str, tuple[dict, list[str]]] = {}
+        # Pending measurements awaiting manual assignment
+        # Structure: {timestamp: dict with keys:
+        #   - "measurements": raw_measurements_dict (weight, impedance)
+        #   - "candidates": list of candidate user_ids
+        #   - "notified_mobile_services": list of (user_id, service_name) tuples
+        # }
+        self._pending_measurements: dict[str, dict] = {}
         # Storage for reassignment/removal features
         self._last_user_measurement: dict[
             str, dict
@@ -1009,9 +1019,29 @@ class ScaleDataUpdateCoordinator:
         """Clean up oldest pending measurements when limit is exceeded (FIFO)."""
         if len(self._pending_measurements) > self.MAX_PENDING_MEASUREMENTS:
             oldest_timestamp = next(iter(self._pending_measurements))
+            pending_data = self._pending_measurements[oldest_timestamp]
+
+            # Dismiss all mobile notifications for this measurement
+            notified_services = pending_data.get("notified_mobile_services", [])
+            for user_id, service_name in notified_services:
+                tag = f"scale_measurement_{oldest_timestamp}"
+                self._hass.async_create_task(
+                    self._hass.services.async_call(
+                        "notify",
+                        service_name,
+                        {"message": "clear_notification", "data": {"tag": tag}},
+                    )
+                )
+                _LOGGER.debug(
+                    "Dismissed mobile notification for user %s on %s (tag: %s)",
+                    user_id,
+                    service_name,
+                    tag,
+                )
+
             del self._pending_measurements[oldest_timestamp]
 
-            # Clean up the notification for the oldest measurement
+            # Clean up the persistent notification for the oldest measurement
             self._ambiguous_notifications.discard(oldest_timestamp)
             persistent_notification.dismiss(
                 self._hass, f"etekcity_scale_{self.address}_{oldest_timestamp}"
@@ -1157,16 +1187,20 @@ class ScaleDataUpdateCoordinator:
             timestamp = datetime.now().isoformat()
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
-            self._pending_measurements[timestamp] = (
-                raw_measurements,
-                all_possible_matches,  # Use the corrected list
-            )
+            self._pending_measurements[timestamp] = {
+                "measurements": raw_measurements,
+                "candidates": all_possible_matches,
+                "notified_mobile_services": [],  # Will be populated when notifications sent
+            }
 
             # Keep only last N pending measurements (FIFO cleanup)
             self._cleanup_old_pending_measurements()
 
-            self._create_ambiguous_notification(
-                weight_kg, impedance, all_possible_matches, timestamp
+            # Schedule async notification (runs in background)
+            self._hass.async_create_task(
+                self._create_ambiguous_notification(
+                    weight_kg, impedance, all_possible_matches, timestamp
+                )
             )
 
             # Notify diagnostic sensors about pending measurements update
@@ -1249,7 +1283,168 @@ class ScaleDataUpdateCoordinator:
             except Exception as ex:
                 _LOGGER.error("Error updating listener for user %s: %s", user_id, ex)
 
-    def _create_ambiguous_notification(
+    async def _send_mobile_notifications_for_ambiguous_measurement(
+        self,
+        timestamp: str,
+        weight_kg: float,
+        impedance_ohms: float | None,
+        candidates: list[str],
+    ) -> list[tuple[str, str]]:
+        """Send mobile notifications to candidate users.
+
+        Groups candidates by mobile device and sends smart notifications:
+        - Single user per device: "Is this yours?" with "Assign to Me" button
+        - Multiple users per device: "Who stepped on?" with "Assign to Alice", "Assign to Bob" buttons
+
+        Args:
+            timestamp: ISO timestamp of the measurement
+            weight_kg: Weight in kilograms
+            impedance_ohms: Impedance in ohms (or None)
+            candidates: List of candidate user_ids
+
+        Returns:
+            List of (user_id, service_name) tuples for services that were notified
+        """
+        notified_services = []
+
+        # Format weight for display using coordinator's display unit
+        if self._display_unit == WeightUnit.LB:
+            weight_value = MassConverter.convert(
+                weight_kg, UnitOfMass.KILOGRAMS, UnitOfMass.POUNDS
+            )
+            weight_display = f"{weight_value:.1f} lb"
+        else:
+            # Default to kg if display_unit is None or WeightUnit.KG
+            weight_display = f"{weight_kg:.1f} kg"
+
+        # Format time
+        dt = datetime.fromisoformat(timestamp)
+        time_display = dt.strftime("%I:%M %p").lstrip("0")
+
+        # Notification tag (unique per measurement)
+        tag = f"scale_measurement_{timestamp}"
+
+        # Group candidates by mobile device service
+        # Structure: {service_name: [(user_id, user_name), ...]}
+        device_to_users: dict[str, list[tuple[str, str]]] = {}
+
+        for user_id in candidates:
+            user_profile = self._user_profiles_by_id.get(user_id)
+            if not user_profile:
+                continue
+
+            user_name = user_profile.get(CONF_USER_NAME, "Unknown")
+            mobile_services = user_profile.get(CONF_MOBILE_NOTIFY_SERVICES, [])
+
+            if not mobile_services:
+                _LOGGER.debug(
+                    "No mobile notify services configured for user %s, "
+                    "skipping mobile notification",
+                    user_name,
+                )
+                continue
+
+            # Add this user to each of their configured devices
+            for service_name in mobile_services:
+                if service_name not in device_to_users:
+                    device_to_users[service_name] = []
+                device_to_users[service_name].append((user_id, user_name))
+
+        # Send one notification per device with appropriate message and actions
+        for service_name, users in device_to_users.items():
+            try:
+                # Determine if this is a single-user or multi-user device
+                if len(users) == 1:
+                    # Personalized notification for single user
+                    user_id, user_name = users[0]
+                    message = f"{weight_display} at {time_display}. Is this yours?"
+
+                    actions = [
+                        {
+                            "action": f"SCALE_ASSIGN_{user_id}_{timestamp}",
+                            "title": "Assign to Me",
+                        },
+                        {
+                            "action": f"SCALE_NOT_ME_{user_id}_{timestamp}",
+                            "title": "Not Me",
+                        },
+                    ]
+
+                    action_data = {
+                        "timestamp": timestamp,
+                        "user_id": user_id,
+                    }
+
+                    _LOGGER.debug(
+                        "Sending personalized notification to %s via %s",
+                        user_name,
+                        service_name,
+                    )
+                else:
+                    # Multi-user shared device notification
+                    user_names = [name for _, name in users]
+                    message = f"{weight_display} at {time_display}. Who stepped on?"
+
+                    # Build action buttons (limit to first 3 users due to platform constraints)
+                    actions = []
+                    for user_id, user_name in users[:3]:
+                        actions.append(
+                            {
+                                "action": f"SCALE_ASSIGN_{user_id}_{timestamp}",
+                                "title": f"Assign to {user_name}",
+                            }
+                        )
+
+                    # If more than 3 users, mention in message
+                    if len(users) > 3:
+                        remaining = len(users) - 3
+                        overflow_names = ", ".join(user_names[3:])
+                        message += f" (Tap for {', '.join(user_names[:3])}, +{remaining} more: {overflow_names})"
+
+                    # Include all user_ids in action_data for fallback
+                    action_data = {
+                        "timestamp": timestamp,
+                        "user_ids": [uid for uid, _ in users],
+                    }
+
+                    _LOGGER.debug(
+                        "Sending multi-user notification to %s with %d candidates: %s",
+                        service_name,
+                        len(users),
+                        ", ".join(user_names),
+                    )
+
+                await self._hass.services.async_call(
+                    "notify",
+                    service_name,
+                    {
+                        "title": "⚖️ Scale Measurement",
+                        "message": message,
+                        "data": {
+                            "tag": tag,
+                            "group": "scale-measurements",
+                            "channel": "Scale Measurements",
+                            "importance": "default",
+                            "actions": actions,
+                            "action_data": action_data,
+                        },
+                    },
+                )
+
+                # Track all users notified via this service
+                for user_id, user_name in users:
+                    notified_services.append((user_id, service_name))
+
+            except Exception as ex:
+                _LOGGER.error(
+                    "Failed to send mobile notification to %s: %s",
+                    service_name,
+                    ex,
+                )
+
+        return notified_services
+
+    async def _create_ambiguous_notification(
         self,
         weight_kg: float,
         impedance: float | None,
@@ -1269,6 +1464,19 @@ class ScaleDataUpdateCoordinator:
             impedance: Optional impedance measurement in ohms.
         """
         from .person_detector import WEIGHT_TOLERANCE_KG
+
+        # Send mobile notifications first (async operation)
+        notified_services = (
+            await self._send_mobile_notifications_for_ambiguous_measurement(
+                timestamp, weight_kg, impedance, ambiguous_user_ids
+            )
+        )
+
+        # Store notified services in pending measurement for later dismissal
+        if timestamp in self._pending_measurements:
+            self._pending_measurements[timestamp]["notified_mobile_services"] = (
+                notified_services
+            )
 
         # Get entity registry for weight lookups
         entity_reg = er.async_get(self._hass)
@@ -1370,7 +1578,8 @@ class ScaleDataUpdateCoordinator:
             # Get raw measurements before removing from pending
             raw_measurements = {}
             if timestamp in self._pending_measurements:
-                raw_measurements, _ = self._pending_measurements[timestamp]
+                pending_data = self._pending_measurements[timestamp]
+                raw_measurements = pending_data["measurements"]
                 # Remove from pending
                 del self._pending_measurements[timestamp]
                 self._ambiguous_notifications.discard(timestamp)
@@ -1450,11 +1659,14 @@ class ScaleDataUpdateCoordinator:
         """
         return self._user_profiles
 
-    def get_pending_measurements(self) -> dict[str, tuple[dict, list[str]]]:
+    def get_pending_measurements(self) -> dict[str, dict]:
         """Get all pending measurements.
 
         Returns:
-            Dictionary mapping timestamp to (raw_measurements_dict, candidate_user_ids).
+            Dictionary mapping timestamp to dict with keys:
+            - "measurements": raw_measurements_dict (weight, impedance)
+            - "candidates": list of candidate user_ids
+            - "notified_mobile_services": list of (user_id, service_name) tuples
         """
         return self._pending_measurements
 
@@ -1480,7 +1692,10 @@ class ScaleDataUpdateCoordinator:
             _LOGGER.warning("No pending measurement found for timestamp: %s", timestamp)
             return False
 
-        measurements, _ = self._pending_measurements.pop(timestamp)
+        pending_data = self._pending_measurements.pop(timestamp)
+        measurements = pending_data["measurements"]
+        notified_services = pending_data.get("notified_mobile_services", [])
+
         _LOGGER.debug(
             "Manually assigned measurement from %s to user %s (weight: %.2f kg)",
             timestamp,
@@ -1496,11 +1711,28 @@ class ScaleDataUpdateCoordinator:
         # Clean up tracking structures
         self._ambiguous_notifications.discard(timestamp)
 
-        # Dismiss the notification
+        # Dismiss the persistent notification
         persistent_notification.dismiss(
             self._hass,
             notification_id=f"etekcity_scale_{self.address}_{timestamp}",
         )
+
+        # Dismiss all mobile notifications for this measurement
+        tag = f"scale_measurement_{timestamp}"
+        for user_id_notified, service_name in notified_services:
+            self._hass.async_create_task(
+                self._hass.services.async_call(
+                    "notify",
+                    service_name,
+                    {"message": "clear_notification", "data": {"tag": tag}},
+                )
+            )
+            _LOGGER.debug(
+                "Dismissed mobile notification for user %s on %s (tag: %s)",
+                user_id_notified,
+                service_name,
+                tag,
+            )
 
         # Notify diagnostic sensors about pending measurements update
         self._notify_diagnostic_sensors()

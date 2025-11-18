@@ -140,6 +140,40 @@ def _validate_user_id_not_reserved(user_id: str) -> bool:
     return user_id != ""
 
 
+def _validate_person_entity_unique(
+    person_entity: str | None,
+    user_profiles: list[dict],
+    exclude_user_id: str | None = None,
+) -> bool:
+    """Validate that person_entity is not already used by another user.
+
+    Args:
+        person_entity: The person entity to check (None/empty is okay).
+        user_profiles: List of existing user profiles.
+        exclude_user_id: Optional user_id to exclude from check (for edits).
+
+    Returns:
+        True if person_entity is unique or None/empty, False otherwise.
+    """
+    # None or empty person entity is always valid (user may not want to link)
+    if not person_entity:
+        return True
+
+    for profile in user_profiles:
+        profile_person = profile.get(CONF_PERSON_ENTITY)
+        profile_id = profile.get(CONF_USER_ID)
+
+        # Skip if this is the user being edited
+        if profile_id == exclude_user_id:
+            continue
+
+        # Check for duplicate person entity
+        if profile_person == person_entity:
+            return False
+
+    return True
+
+
 @dataclasses.dataclass(frozen=True)
 class Discovery:
     """Represents a discovered Bluetooth device.
@@ -651,8 +685,21 @@ class ScaleOptionsFlow(OptionsFlow):
         if user_input is not None:
             # Validate user_name is not empty
             user_name = user_input[CONF_USER_NAME]
+            person_entity = user_input.get(CONF_PERSON_ENTITY)
+
+            errors = {}
+
             if not _validate_user_name_not_empty(user_name):
-                # Re-show form with error (ordered: name → person link → mobile devices → features)
+                errors["base"] = "empty_user_name"
+
+            # Validate person entity is unique
+            if person_entity and not _validate_person_entity_unique(
+                person_entity, self.user_profiles
+            ):
+                errors["person_entity"] = "duplicate_person_entity"
+
+            if errors:
+                # Re-show form with errors (ordered: name → person link → mobile devices → features)
                 available_mobile_services = _get_mobile_notify_services(self.hass)
 
                 schema = {
@@ -675,7 +722,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 return self.async_show_form(
                     step_id="add_user",
                     data_schema=vol.Schema(schema),
-                    errors={"base": "empty_user_name"},
+                    errors=errors,
                 )
 
             # Check if body metrics is enabled
@@ -888,10 +935,23 @@ class ScaleOptionsFlow(OptionsFlow):
         current_user = self.user_profiles[user_index]
 
         if user_input is not None:
-            # Validate user_name is not empty
+            # Validate user_name is not empty and person entity is unique
             user_name = user_input[CONF_USER_NAME]
+            person_entity = user_input.get(CONF_PERSON_ENTITY)
+
+            errors = {}
+
             if not _validate_user_name_not_empty(user_name):
-                # Re-show form with error (ordered: name → person link → mobile devices → features)
+                errors["base"] = "empty_user_name"
+
+            # Validate person entity is unique (excluding current user)
+            if person_entity and not _validate_person_entity_unique(
+                person_entity, self.user_profiles, exclude_user_id=selected_user_id
+            ):
+                errors["person_entity"] = "duplicate_person_entity"
+
+            if errors:
+                # Re-show form with errors (ordered: name → person link → mobile devices → features)
                 current_person = current_user.get(CONF_PERSON_ENTITY)
                 current_mobile_services = current_user.get(
                     CONF_MOBILE_NOTIFY_SERVICES, []
@@ -935,7 +995,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 return self.async_show_form(
                     step_id="edit_user_details",
                     data_schema=vol.Schema(schema),
-                    errors={"base": "empty_user_name"},
+                    errors=errors,
                 )
 
             # Check if body metrics is being enabled/disabled
