@@ -377,6 +377,110 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         _LOGGER.debug("Registered service: %s.%s", DOMAIN, SERVICE_REMOVE_MEASUREMENT)
 
+    # Register event listener for mobile app notification actions
+    async def handle_mobile_app_notification_action(event):
+        """Handle mobile app notification action events."""
+        action = event.data.get("action")
+
+        if not action or not isinstance(action, str):
+            return
+
+        # Only handle our scale notification actions
+        if not action.startswith("SCALE_"):
+            return
+
+        try:
+            # Parse action: SCALE_ASSIGN_{user_id}_{timestamp} or SCALE_NOT_ME_{user_id}_{timestamp}
+            parts = action.split(
+                "_", 3
+            )  # Split into ["SCALE", "ASSIGN"/"NOT", "ME"/{user_id}, {timestamp}]
+
+            if len(parts) < 3:
+                _LOGGER.warning("Invalid scale action format: %s", action)
+                return
+
+            if parts[1] == "ASSIGN":
+                # SCALE_ASSIGN_{user_id}_{timestamp}
+                if len(parts) != 4:
+                    _LOGGER.warning("Invalid SCALE_ASSIGN action format: %s", action)
+                    return
+
+                user_id = parts[2]
+                timestamp = parts[3]
+
+                _LOGGER.info(
+                    "Mobile app action: assigning measurement %s to user %s",
+                    timestamp,
+                    user_id,
+                )
+
+                # Find the coordinator that has this pending measurement
+                assigned = False
+                for coord in hass.data.get(DOMAIN, {}).values():
+                    if not isinstance(coord, ScaleDataUpdateCoordinator):
+                        continue
+
+                    if timestamp in coord.get_pending_measurements():
+                        # Validate user exists in this coordinator
+                        valid_user_ids = [
+                            p.get(CONF_USER_ID)
+                            for p in coord.get_user_profiles()
+                            if p.get(CONF_USER_ID)
+                        ]
+
+                        if user_id not in valid_user_ids:
+                            _LOGGER.error(
+                                "User %s not found in coordinator for timestamp %s",
+                                user_id,
+                                timestamp,
+                            )
+                            continue
+
+                        # Assign the measurement
+                        if coord.assign_pending_measurement(timestamp, user_id):
+                            assigned = True
+                            _LOGGER.info(
+                                "Successfully assigned measurement %s to user %s via mobile app",
+                                timestamp,
+                                user_id,
+                            )
+                        break
+
+                if not assigned:
+                    _LOGGER.warning(
+                        "Could not assign measurement %s to user %s - "
+                        "measurement may have been already assigned or expired",
+                        timestamp,
+                        user_id,
+                    )
+
+            elif parts[1] == "NOT" and parts[2] == "ME":
+                # SCALE_NOT_ME_{user_id}_{timestamp}
+                if len(parts) != 4:
+                    _LOGGER.warning("Invalid SCALE_NOT_ME action format: %s", action)
+                    return
+
+                user_id = parts[3].rsplit("_", 1)[0] if "_" in parts[3] else parts[3]
+                timestamp = parts[3].rsplit("_", 1)[-1] if "_" in parts[3] else ""
+
+                # For "Not Me" action, we just log it
+                # The notification is already dismissed by the mobile app
+                _LOGGER.debug(
+                    "User %s indicated measurement %s is not theirs (via mobile app)",
+                    user_id,
+                    timestamp,
+                )
+                # No further action needed - measurement remains pending for other users
+
+        except Exception as ex:
+            _LOGGER.error("Error handling mobile app notification action: %s", ex)
+
+    # Register the event listener
+    hass.bus.async_listen(
+        "mobile_app_notification_action", handle_mobile_app_notification_action
+    )
+    _LOGGER.debug("Registered event listener for mobile_app_notification_action")
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(coordinator.async_stop)
     return True
