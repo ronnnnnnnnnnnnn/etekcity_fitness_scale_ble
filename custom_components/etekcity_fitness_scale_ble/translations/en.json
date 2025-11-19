@@ -44,7 +44,8 @@
         "error": {
             "cannot_connect": "Failed to connect",
             "unknown": "Unexpected error",
-            "empty_user_name": "User name cannot be empty. Please provide a valid name."
+            "empty_user_name": "User name cannot be empty. Please provide a valid name.",
+            "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
         },
         "abort": {
             "no_devices_found": "No devices found on the network",
@@ -73,7 +74,12 @@
                 "data": {
                     "user_name": "User Name",
                     "person_entity": "Person Entity (optional)",
+                    "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
                     "body_metrics_enabled": "Enable body composition metrics"
+                },
+                "data_description": {
+                    "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+                    "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
                 }
             },
             "add_user_body_metrics": {
@@ -98,7 +104,12 @@
                 "data": {
                     "user_name": "User Name",
                     "person_entity": "Person Entity (optional)",
+                    "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
                     "body_metrics_enabled": "Enable body composition metrics"
+                },
+                "data_description": {
+                    "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+                    "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
                 }
             },
             "edit_user_body_metrics": {
@@ -124,6 +135,10 @@
                     "scale_display_unit": "Scale Display Unit"
                 }
             }
+        },
+        "error": {
+            "empty_user_name": "User name cannot be empty. Please provide a valid name.",
+            "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
         },
         "abort": {
             "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function."

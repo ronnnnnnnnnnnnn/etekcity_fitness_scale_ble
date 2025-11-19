@@ -1418,7 +1418,7 @@ class ScaleDataUpdateCoordinator:
                     "notify",
                     service_name,
                     {
-                        "title": "⚖️ Scale Measurement",
+                        "title": "❓ Unassigned Scale Measurement",
                         "message": message,
                         "data": {
                             "tag": tag,

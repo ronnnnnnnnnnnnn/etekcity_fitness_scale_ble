@@ -48,6 +48,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Configuration
 
+### Initial Setup
+
 1. In Home Assistant, go to "Configuration" > "Integrations".
 2. Click the "+" button to add a new integration.
 3. Search for "Etekcity Fitness Scale BLE" and select it.
@@ -59,21 +61,50 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
         - Enter your date of birth
         - Enter your height
 
+### User Profile Configuration Options
+
+When adding or editing user profiles (**Settings > Devices & Services > Etekcity Fitness Scale BLE > Configure**), you can configure the following options:
+
+- **User Name:** Display name for the user profile.
+
+- **Person Entity (optional):** Link this user profile to a Home Assistant person entity. When linked, the integration uses the person's location state to improve automatic assignment:
+  - If the person is marked as `not_home`, they are excluded from automatic assignment for new measurements
+  - This helps avoid incorrectly assigning measurements when household members are away
+
+- **Mobile Devices (optional):** Select one or more mobile devices (via Home Assistant companion app) to receive actionable notifications for ambiguous measurements:
+  - When enabled, you'll receive a mobile notification with tap-to-assign buttons directly on your phone
+  - Each candidate user gets a personalized notification with "This is me" and "Not me" buttons
+
+- **Enable body composition metrics:** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth, and height.
+
 ## Multi-User Support
 
 This integration is designed for households with multiple users. You can create a unique profile for each person using the scale.
 
 ### Person Detection
-When a new measurement is received, the integration attempts to automatically assign it to the correct person based on two factors:
-1.  **Weight History:** The measurement is compared against each user's last known weight.
-2.  **Location:** If a user profile is linked to a Home Assistant `person` entity, the integration will check if that person is `home`. Users who are `not_home` are excluded from automatic assignment.
 
-If a single user is a clear match, the measurement is assigned automatically. If the measurement is ambiguous (e.g., two users have similar weights, or a new user has no history), a persistent notification will appear in Home Assistant, allowing you to assign it manually using the services below.
+When a new measurement is received, the integration attempts to automatically assign it to the correct person based on two factors:
+
+1. **Weight History:** The measurement is compared against each user's last known weight.
+2. **Location:** If a user profile is linked to a Home Assistant `person` entity, the integration checks if that person is `home`. Users who are `not_home` are excluded from automatic assignment.
+
+If a single user is a clear match, the measurement is assigned automatically.
+
+### Ambiguous Measurements
+
+If the measurement is ambiguous (e.g., two users have similar weights, or a new user has no history), the integration will notify you:
+
+- **Mobile Notifications (if configured):** Each candidate user receives a personalized notification on their mobile device with actionable buttons:
+  - "This is me" - Assigns the measurement to you
+  - "Not me" - Dismisses your notification (measurement remains available for others)
+
+- **Persistent Notifications:** A notification appears in the Home Assistant notifications panel with instructions to manually assign the measurement using the `assign_measurement` service.
 
 ### Managing Users
+
 You can manage user profiles by navigating to your device in **Settings > Devices & Services > Etekcity Fitness Scale BLE**. Click **CONFIGURE** to:
-- **Add a new user:** Create a new profile.
-- **Edit a user:** Update a user's name, linked person entity, or body metric settings.
+- **Add a new user:** Create a new profile with optional person entity link and mobile notification settings.
+- **Edit a user:** Update a user's name, linked person entity, mobile devices, or body metric settings.
 - **Remove a user:** Delete a user's profile and all associated sensor entities.
 
 ## Services
