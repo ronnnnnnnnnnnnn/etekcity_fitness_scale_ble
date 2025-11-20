@@ -7,6 +7,7 @@ exponential decay averaging and standard deviation with recency scaling.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime, timedelta
 
@@ -26,6 +27,8 @@ from .const import (
     TOLERANCE_MULTIPLIER,
     VARIANCE_WINDOW_DAYS,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def calculate_base_tolerance(weight_kg: float) -> float:
@@ -91,7 +94,13 @@ def calculate_reference_weight(
 
     if not recent:
         # Fallback to most recent measurement outside window
-        return measurements[-1]["weight_kg"]
+        fallback_weight = measurements[-1]["weight_kg"]
+        _LOGGER.debug(
+            "No measurements within %d-day reference window, using most recent: %.2f kg",
+            REFERENCE_WINDOW_DAYS,
+            fallback_weight,
+        )
+        return fallback_weight
 
     # Calculate exponential decay weights
     total_weight = 0.0
@@ -108,10 +117,22 @@ def calculate_reference_weight(
         total_weight += decay_weight
 
     if total_weight > 0:
-        return weighted_sum / total_weight
+        ref_weight = weighted_sum / total_weight
+        _LOGGER.debug(
+            "Calculated reference weight %.2f kg from %d measurements (exponential decay, %d-day window)",
+            ref_weight,
+            len(recent),
+            REFERENCE_WINDOW_DAYS,
+        )
+        return ref_weight
 
     # Fallback to most recent in window
-    return recent[-1]["weight_kg"]
+    fallback_weight = recent[-1]["weight_kg"]
+    _LOGGER.debug(
+        "Reference weight calculation fallback: %.2f kg (most recent in window)",
+        fallback_weight,
+    )
+    return fallback_weight
 
 
 def calculate_adaptive_tolerance(
@@ -153,6 +174,12 @@ def calculate_adaptive_tolerance(
 
     # Need minimum measurements for statistical validity
     if len(recent) < MIN_MEASUREMENTS_FOR_ADAPTIVE:
+        _LOGGER.debug(
+            "Insufficient measurements for adaptive tolerance (%d < %d required), using base tolerance: %.2f kg",
+            len(recent),
+            MIN_MEASUREMENTS_FOR_ADAPTIVE,
+            base_tolerance_kg,
+        )
         return base_tolerance_kg
 
     # Calculate standard deviation
@@ -167,7 +194,46 @@ def calculate_adaptive_tolerance(
     min_adaptive = base_tolerance_kg * ADAPTIVE_TOLERANCE_MIN_MULTIPLIER
     max_adaptive = base_tolerance_kg * ADAPTIVE_TOLERANCE_MAX_MULTIPLIER
 
-    return max(min_adaptive, min(adaptive, max_adaptive))
+    bounded_adaptive = max(min_adaptive, min(adaptive, max_adaptive))
+
+    # Log calculation details
+    if bounded_adaptive == min_adaptive:
+        _LOGGER.debug(
+            "Adaptive tolerance %.2f kg clamped to minimum (%.2f kg, %.0f%% of base %.2f kg) "
+            "[std dev: %.2f kg, %d measurements in %d-day window]",
+            bounded_adaptive,
+            min_adaptive,
+            ADAPTIVE_TOLERANCE_MIN_MULTIPLIER * 100,
+            base_tolerance_kg,
+            std_dev,
+            len(recent),
+            VARIANCE_WINDOW_DAYS,
+        )
+    elif bounded_adaptive == max_adaptive:
+        _LOGGER.debug(
+            "Adaptive tolerance %.2f kg clamped to maximum (%.2f kg, %.0f%% of base %.2f kg) "
+            "[std dev: %.2f kg, %d measurements in %d-day window]",
+            bounded_adaptive,
+            max_adaptive,
+            ADAPTIVE_TOLERANCE_MAX_MULTIPLIER * 100,
+            base_tolerance_kg,
+            std_dev,
+            len(recent),
+            VARIANCE_WINDOW_DAYS,
+        )
+    else:
+        _LOGGER.debug(
+            "Adaptive tolerance %.2f kg from std dev %.2f kg × %.1fx multiplier "
+            "[%d measurements in %d-day window, base: %.2f kg]",
+            bounded_adaptive,
+            std_dev,
+            TOLERANCE_MULTIPLIER,
+            len(recent),
+            VARIANCE_WINDOW_DAYS,
+            base_tolerance_kg,
+        )
+
+    return bounded_adaptive
 
 
 def calculate_recency_multiplier(days_since_last: float) -> float:
@@ -243,9 +309,15 @@ def get_tolerance_for_user(
             (None, None)  # Treated as new user
     """
     history = user_profile.get(CONF_WEIGHT_HISTORY, [])
+    user_id = user_profile.get("user_id", "unknown")
+    user_name = user_profile.get("name", user_id)
 
     if not history:
         # No history - treat as new user
+        _LOGGER.debug(
+            "User %s has no weight history - cannot calculate tolerance (new user)",
+            user_name,
+        )
         return (None, None)
 
     # Check if history is too stale
@@ -254,16 +326,37 @@ def get_tolerance_for_user(
 
     if days_since_last > HISTORY_RETENTION_DAYS:
         # Stale history - treat as new user
+        _LOGGER.debug(
+            "User %s has stale weight history (%.1f days > %d day retention) - cannot calculate tolerance",
+            user_name,
+            days_since_last,
+            HISTORY_RETENTION_DAYS,
+        )
         return (None, None)
+
+    _LOGGER.debug(
+        "Calculating adaptive tolerance for user %s (%.1f days since last measurement, %d total measurements)",
+        user_name,
+        days_since_last,
+        len(history),
+    )
 
     # Calculate reference weight (weighted average)
     ref_weight = calculate_reference_weight(history, current_time)
 
     if ref_weight is None:
+        _LOGGER.warning("Failed to calculate reference weight for user %s", user_name)
         return (None, None)
 
     # Calculate base tolerance (hybrid percentage)
     base_tolerance = calculate_base_tolerance(ref_weight)
+    _LOGGER.debug(
+        "Base tolerance for user %s: %.2f kg (%.0f%% of reference weight %.2f kg)",
+        user_name,
+        base_tolerance,
+        DEFAULT_TOLERANCE_PERCENTAGE * 100,
+        ref_weight,
+    )
 
     # Calculate adaptive tolerance (statistical)
     adaptive_tolerance = calculate_adaptive_tolerance(
@@ -272,8 +365,26 @@ def get_tolerance_for_user(
 
     # Apply recency scaling
     recency_mult = calculate_recency_multiplier(days_since_last)
+    if recency_mult > RECENCY_SCALING_BASE:
+        _LOGGER.debug(
+            "Applying recency multiplier %.2fx for user %s (%.1f days since last measurement)",
+            recency_mult,
+            user_name,
+            days_since_last,
+        )
 
     # Final tolerance (only apply lower bound, no upper clamp)
     final_tolerance = max(MIN_TOLERANCE_KG, adaptive_tolerance * recency_mult)
+
+    _LOGGER.debug(
+        "Final tolerance for user %s: %.2f kg [reference: %.2f kg, adaptive: %.2f kg, "
+        "recency: %.2fx, final: %.2f kg]",
+        user_name,
+        final_tolerance,
+        ref_weight,
+        adaptive_tolerance,
+        recency_mult,
+        final_tolerance,
+    )
 
     return (ref_weight, final_tolerance)
