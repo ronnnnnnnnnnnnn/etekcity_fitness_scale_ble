@@ -30,7 +30,7 @@ from etekcity_esf551_ble import (
     ESF24Scale,
     ESF551Scale,
     EtekcitySmartFitnessScale,
-    EtekcitySmartFitnessScaleWithBodyMetrics,
+    ESF551ScaleWithBodyMetrics,
     ScaleData,
     Sex,
     WeightUnit,
@@ -764,7 +764,7 @@ class ScaleDataUpdateCoordinator:
                         _LOGGER.debug(
                             "Initializing new EtekcitySmartFitnessScaleWithBodyMetrics client"
                         )
-                        self._client = EtekcitySmartFitnessScaleWithBodyMetrics(
+                        self._client = ESF551ScaleWithBodyMetrics(
                             self.address,
                             self.update_listeners,
                             self._sex,
