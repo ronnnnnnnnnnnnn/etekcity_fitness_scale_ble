@@ -674,7 +674,7 @@ class ScaleDataUpdateCoordinator:
                 "This indicates corrupted migration data."
             )
 
-        self._person_detector = PersonDetector(hass, device_name, DOMAIN)
+        self._person_detector = PersonDetector(hass)
         # Pending measurements awaiting manual assignment
         # Structure: {timestamp: dict with keys:
         #   - "measurements": raw_measurements_dict (weight, impedance)
@@ -1596,7 +1596,9 @@ class ScaleDataUpdateCoordinator:
             timestamp: Timestamp of the measurement.
             impedance: Optional impedance measurement in ohms.
         """
-        from .person_detector import WEIGHT_TOLERANCE_KG
+        from datetime import datetime
+
+        from .adaptive_tolerance import get_tolerance_for_user
 
         # Send mobile notifications first (async operation)
         notified_services = (
@@ -1610,9 +1612,6 @@ class ScaleDataUpdateCoordinator:
             self._pending_measurements[timestamp]["notified_mobile_services"] = (
                 notified_services
             )
-
-        # Get entity registry for weight lookups
-        entity_reg = er.async_get(self._hass)
 
         # Resolve device info for notification context
         device_reg = dr.async_get(self._hass)
@@ -1638,6 +1637,7 @@ class ScaleDataUpdateCoordinator:
         # Categorize users: those within tolerance vs all others
         matching_users = []  # (user_id, weight_diff, user_name)
         other_users = []  # (user_id, user_name)
+        current_time = datetime.now()
 
         for user_id in ambiguous_user_ids:
             user_profile = self._user_profiles_by_id.get(user_id)
@@ -1646,40 +1646,20 @@ class ScaleDataUpdateCoordinator:
 
             user_name = user_profile.get(CONF_USER_NAME, user_id)
 
-            # Try to find user's current weight to calculate a difference
-            weight_diff = None
-            try:
-                sensor_unique_id = get_sensor_unique_id(
-                    self._device_name, user_id, "weight"
-                )
-                sensor_entity_id = entity_reg.async_get_entity_id(
-                    "sensor", DOMAIN, sensor_unique_id
-                )
+            # Calculate adaptive tolerance for this user
+            ref_weight, tolerance_kg = get_tolerance_for_user(
+                user_profile, current_time
+            )
 
-                if sensor_entity_id:
-                    sensor_state = self._hass.states.get(sensor_entity_id)
-                    if sensor_state and sensor_state.state not in (
-                        "unknown",
-                        "unavailable",
-                    ):
-                        # Convert sensor state to kg (handles unit conversion if display unit is pounds)
-                        last_weight_kg = self._person_detector.sensor_state_to_kg(
-                            sensor_state
-                        )
-                        if last_weight_kg is not None:
-                            weight_diff = abs(weight_kg - last_weight_kg)
-                        else:
-                            weight_diff = None
-                    else:
-                        weight_diff = None
+            # If user has usable history, check if within adaptive tolerance
+            if ref_weight is not None and tolerance_kg is not None:
+                weight_diff = abs(weight_kg - ref_weight)
+                if weight_diff <= tolerance_kg:
+                    matching_users.append((user_id, weight_diff, user_name))
                 else:
-                    weight_diff = None
-            except (ValueError, TypeError, AttributeError):
-                weight_diff = None  # Treat parse errors as no valid history
-
-            if weight_diff is not None and weight_diff <= WEIGHT_TOLERANCE_KG:
-                matching_users.append((user_id, weight_diff, user_name))
+                    other_users.append((user_id, user_name))
             else:
+                # User has no usable history (new user or stale data)
                 other_users.append((user_id, user_name))
 
         # Sort matching users by weight difference (closest first)

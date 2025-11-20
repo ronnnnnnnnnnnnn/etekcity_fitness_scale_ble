@@ -2,65 +2,29 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.const import UnitOfMass
-from homeassistant.helpers import entity_registry as er
-from homeassistant.util.unit_conversion import MassConverter
-
-from .const import CONF_PERSON_ENTITY, get_sensor_unique_id
+from .adaptive_tolerance import get_tolerance_for_user
+from .const import CONF_PERSON_ENTITY
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-# Weight tolerance in kg for person detection (±3kg)
-WEIGHT_TOLERANCE_KG = 3.0
-
 
 class PersonDetector:
     """Detect which person is using the scale based on weight."""
 
-    def __init__(self, hass: HomeAssistant, device_name: str, domain: str) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the person detector.
 
         Args:
-            hass: Home Assistant instance for accessing sensor states.
-            device_name: The device name used for unique_id construction.
-            domain: The integration domain.
+            hass: Home Assistant instance for accessing person entity states.
         """
         self.hass = hass
-        self._device_name = device_name
-        self._domain = domain
-        self._entity_reg = er.async_get(hass)
-
-    def sensor_state_to_kg(self, sensor_state) -> float | None:
-        """Convert sensor state value to kilograms for comparison.
-
-        Home Assistant converts sensor.state for display when suggested_unit_of_measurement
-        is set. This helper ensures we always compare in the native unit (kg).
-
-        Args:
-            sensor_state: The sensor state object from hass.states.get()
-
-        Returns:
-            Weight in kilograms, or None if conversion failed.
-        """
-        try:
-            value = float(sensor_state.state)
-            # Check the displayed unit (may differ from native unit)
-            unit = sensor_state.attributes.get("unit_of_measurement")
-            if unit == UnitOfMass.POUNDS:
-                # Convert pounds to kilograms
-                return MassConverter.convert(
-                    value, UnitOfMass.POUNDS, UnitOfMass.KILOGRAMS
-                )
-            # Assume kilograms (native unit) if unit is kg or not specified
-            return value
-        except (ValueError, TypeError, AttributeError):
-            return None
 
     def _filter_candidates_by_location(
         self, candidate_ids: list[str], user_profiles: list[dict]
@@ -125,8 +89,9 @@ class PersonDetector:
     ) -> tuple[str | None, list[str]]:
         """Detect which person is using the scale based on weight.
 
-        Uses a simple tolerance-based algorithm: checks if the current weight
-        is within ±3kg of the last known weight for each user.
+        Uses adaptive tolerance based on each user's weight history, variance,
+        and time since last measurement. Falls back to treating users with no
+        history or stale history (90+ days) as new users.
 
         Args:
             weight_kg: Current weight measurement in kilograms.
@@ -142,71 +107,48 @@ class PersonDetector:
             _LOGGER.debug("No user profiles configured, cannot detect person")
             return (None, [])
 
+        current_time = datetime.now()
         matching_users = []
 
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
+            user_name = user_profile.get("name", user_id)
             if user_id is None:
                 continue
 
-            # Construct unique_id for weight sensor using helper function
-            sensor_unique_id = get_sensor_unique_id(
-                self._device_name, user_id, "weight"
+            # Calculate adaptive tolerance for this user
+            ref_weight, tolerance_kg = get_tolerance_for_user(
+                user_profile, current_time
             )
 
-            # Look up entity_id from unique_id via entity registry
-            sensor_entity_id = self._entity_reg.async_get_entity_id(
-                "sensor", self._domain, sensor_unique_id
-            )
-
-            if not sensor_entity_id:
+            # If tolerance is None, user has no usable history (new user or 90+ day gap)
+            if tolerance_kg is None:
                 _LOGGER.debug(
-                    "No weight sensor found in registry for user %s (unique_id: %s)",
-                    user_profile.get("name", user_id),
-                    sensor_unique_id,
+                    "User %s has no usable weight history (new user or stale data), skipping tolerance check",
+                    user_name,
                 )
                 continue
 
-            # Get sensor state
-            sensor_state = self.hass.states.get(sensor_entity_id)
-
-            if not sensor_state or sensor_state.state in ("unknown", "unavailable"):
+            # Check if current weight is within adaptive tolerance
+            weight_diff = abs(weight_kg - ref_weight)
+            if weight_diff <= tolerance_kg:
                 _LOGGER.debug(
-                    "No previous weight found for user %s (sensor: %s)",
-                    user_profile.get("name", user_id),
-                    sensor_entity_id,
-                )
-                continue
-
-            # Convert sensor state to kg (handles unit conversion if display unit is pounds)
-            last_weight_kg = self.sensor_state_to_kg(sensor_state)
-            if last_weight_kg is None:
-                _LOGGER.warning(
-                    "Invalid weight value for user %s: %s",
-                    user_profile.get("name", user_id),
-                    sensor_state.state,
-                )
-                continue
-
-            # Check if current weight is within tolerance
-            weight_diff = abs(weight_kg - last_weight_kg)
-            if weight_diff <= WEIGHT_TOLERANCE_KG:
-                _LOGGER.debug(
-                    "User %s matches (last: %.2f kg, current: %.2f kg, diff: %.2f kg)",
-                    user_profile.get("name", user_id),
-                    last_weight_kg,
+                    "User %s matches (ref: %.2f kg, current: %.2f kg, diff: %.2f kg, tolerance: %.2f kg)",
+                    user_name,
+                    ref_weight,
                     weight_kg,
                     weight_diff,
+                    tolerance_kg,
                 )
                 matching_users.append(user_id)
             else:
                 _LOGGER.debug(
-                    "User %s does not match (last: %.2f kg, current: %.2f kg, diff: %.2f kg > %.2f kg)",
-                    user_profile.get("name", user_id),
-                    last_weight_kg,
+                    "User %s does not match (ref: %.2f kg, current: %.2f kg, diff: %.2f kg > tolerance: %.2f kg)",
+                    user_name,
+                    ref_weight,
                     weight_kg,
                     weight_diff,
-                    WEIGHT_TOLERANCE_KG,
+                    tolerance_kg,
                 )
 
         # Return results based on number of matches
@@ -233,43 +175,33 @@ class PersonDetector:
             return (None, [])
 
     def get_users_with_history(self, user_profiles: list[dict]) -> list[str]:
-        """Get list of user IDs that have previous weight measurements.
+        """Get list of user IDs that have usable weight history.
+
+        A user has usable history if they have weight_history data that can be used
+        to calculate adaptive tolerance (not None). This excludes new users and users
+        with stale data (90+ days old).
 
         Args:
             user_profiles: List of user profile dictionaries with user_id.
 
         Returns:
-            List of user IDs that have weight sensor history.
+            List of user IDs that have usable weight history for adaptive tolerance.
         """
         users_with_history = []
+        current_time = datetime.now()
 
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
             if user_id is None:
                 continue
 
-            # Construct unique_id for weight sensor
-            sensor_unique_id = get_sensor_unique_id(
-                self._device_name, user_id, "weight"
+            # Check if user has usable weight history via adaptive tolerance
+            ref_weight, tolerance_kg = get_tolerance_for_user(
+                user_profile, current_time
             )
 
-            # Look up entity_id
-            sensor_entity_id = self._entity_reg.async_get_entity_id(
-                "sensor", self._domain, sensor_unique_id
-            )
-
-            if not sensor_entity_id:
-                continue
-
-            # Check if sensor has a valid state
-            sensor_state = self.hass.states.get(sensor_entity_id)
-            if sensor_state and sensor_state.state not in ("unknown", "unavailable"):
-                try:
-                    # Try to parse as float to verify it's a valid measurement
-                    float(sensor_state.state)
-                    users_with_history.append(user_id)
-                except (ValueError, TypeError):
-                    # Invalid state value
-                    continue
+            # If tolerance is not None, user has usable history
+            if tolerance_kg is not None:
+                users_with_history.append(user_id)
 
         return users_with_history
