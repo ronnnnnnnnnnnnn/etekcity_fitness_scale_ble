@@ -200,6 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     user_profiles = entry.data.get(CONF_USER_PROFILES, [])
 
     coordinator = ScaleDataUpdateCoordinator(hass, address, user_profiles, entry.title)
+    coordinator.set_config_entry_id(entry.entry_id)
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

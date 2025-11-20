@@ -37,36 +37,6 @@ from .coordinator import ScaleData, ScaleDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PREVIOUS_VALUE_KEY = "previous_value"
-
-
-@dataclass
-class ScaleSensorExtraStoredData(SensorExtraStoredData):
-    """Object to hold extra stored data for scale sensors."""
-
-    previous_value: float | None
-
-    def as_dict(self) -> dict[str, Any]:
-        """Return a dict representation of the sensor data."""
-        data = super().as_dict()
-        data[PREVIOUS_VALUE_KEY] = self.previous_value
-        return data
-
-    @classmethod
-    def from_dict(cls, restored: dict[str, Any]) -> Self | None:
-        """Initialize a stored sensor state from a dict."""
-        extra = SensorExtraStoredData.from_dict(restored)
-        if extra is None:
-            return None
-
-        previous_value: float | None = restored.get(PREVIOUS_VALUE_KEY)
-
-        return cls(
-            extra.native_value,
-            extra.native_unit_of_measurement,
-            previous_value,
-        )
-
 
 SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
@@ -324,7 +294,7 @@ class ScaleSensor(RestoreSensor):
             address: The Bluetooth address of the scale.
             coordinator: The data update coordinator for the scale.
             entity_description: Description of the sensor entity.
-            user_id: Optional user ID for v1 compatibility (unused).
+            user_id: Optional user ID for v1 compatibility.
 
         """
         self.entity_description = entity_description
@@ -337,8 +307,11 @@ class ScaleSensor(RestoreSensor):
 
         self._attr_name = f"{entity_description.key.replace("_", " ").title()}"
 
+        # Store user_id for history lookups (empty string for v1 compatibility)
+        self._user_id = user_id or ""
+
         self._attr_unique_id = get_sensor_unique_id(
-            name, user_id or "", entity_description.key
+            name, self._user_id, entity_description.key
         )
 
         self._attr_device_info = DeviceInfo(
@@ -347,7 +320,6 @@ class ScaleSensor(RestoreSensor):
             manufacturer="Etekcity",
         )
         self._coordinator = coordinator
-        self._previous_value: float | None = None  # For rollback support
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -367,34 +339,15 @@ class ScaleSensor(RestoreSensor):
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
             self._attr_native_value = last_state.native_value
-            self._previous_value = last_state.previous_value
             return True
         return False
 
-    @property
-    def extra_state_attributes(self):
-        """Return the state attributes of the sensor."""
-        return {
-            PREVIOUS_VALUE_KEY: self._previous_value,
-        }
-
-    @property
-    def extra_restore_state_data(self) -> ScaleSensorExtraStoredData:
-        """Return sensor specific state data to be restored."""
-        return ScaleSensorExtraStoredData(
-            self.native_value,
-            self.native_unit_of_measurement,
-            self._previous_value,
-        )
-
-    async def async_get_last_sensor_data(
-        self,
-    ) -> ScaleSensorExtraStoredData | None:
-        """Restore Scale Sensor Extra Stored Data."""
+    async def async_get_last_sensor_data(self) -> SensorExtraStoredData | None:
+        """Restore Sensor Extra Stored Data."""
         if (restored_last_extra_data := await self.async_get_last_extra_data()) is None:
             return None
 
-        return ScaleSensorExtraStoredData.from_dict(restored_last_extra_data.as_dict())
+        return SensorExtraStoredData.from_dict(restored_last_extra_data.as_dict())
 
     def handle_update(
         self,
@@ -411,20 +364,42 @@ class ScaleSensor(RestoreSensor):
         """
         # Handle revert signal
         if data.measurements.get("_revert_"):
-            if self._previous_value is not None:
-                # Revert to previous value
-                _LOGGER.debug(
-                    "Reverting sensor %s to previous value: %s",
-                    self.entity_id,
-                    self._previous_value,
-                )
-                self._attr_native_value = self._previous_value
-                self._previous_value = None
-                self._attr_available = True
+            # Get previous measurement from coordinator's persistent history
+            prev_measurement = self._coordinator.get_previous_measurement(self._user_id)
+            if prev_measurement is not None:
+                # Get the sensor key value from previous measurement
+                sensor_key = self.entity_description.key
+                # Convert weight_kg to weight for the sensor key
+                if sensor_key == "weight":
+                    previous_value = prev_measurement.get("weight_kg")
+                elif sensor_key == "impedance":
+                    previous_value = prev_measurement.get("impedance_ohm")
+                else:
+                    # For body metrics, they're not stored in history
+                    previous_value = None
+
+                if previous_value is not None:
+                    # Revert to previous value
+                    _LOGGER.debug(
+                        "Reverting sensor %s to previous value: %s",
+                        self.entity_id,
+                        previous_value,
+                    )
+                    self._attr_native_value = previous_value
+                    self._attr_available = True
+                else:
+                    # Previous measurement exists but doesn't have this sensor's value
+                    _LOGGER.debug(
+                        "No previous value for sensor %s key %s, marking unavailable",
+                        self.entity_id,
+                        sensor_key,
+                    )
+                    self._attr_available = False
+                    self._attr_native_value = None
             else:
-                # No previous value - mark unavailable
+                # No previous measurement - mark unavailable
                 _LOGGER.debug(
-                    "No previous value for sensor %s, marking unavailable",
+                    "No previous measurement for sensor %s, marking unavailable",
                     self.entity_id,
                 )
                 self._attr_available = False
@@ -440,9 +415,6 @@ class ScaleSensor(RestoreSensor):
                 self.entity_id,
                 measurement,
             )
-            # Save current value as previous before updating
-            self._previous_value = self._attr_native_value
-
             self._attr_available = True
             self._attr_native_value = measurement
 
@@ -460,14 +432,12 @@ class ScaleWeightSensorExtraStoredData(SensorExtraStoredData):
 
     hw_version: str
     sw_version: str
-    previous_value: float | None
 
     def as_dict(self) -> dict[str, Any]:
         """Return a dict representation of the scale sensor data."""
         data = super().as_dict()
         data[HW_VERSION_KEY] = self.hw_version
         data[SW_VERSION_KEY] = self.sw_version
-        data[PREVIOUS_VALUE_KEY] = self.previous_value
 
         return data
 
@@ -481,14 +451,12 @@ class ScaleWeightSensorExtraStoredData(SensorExtraStoredData):
         restored.setdefault("")
         hw_version: str = restored.get(HW_VERSION_KEY)
         sw_version: str = restored.get(SW_VERSION_KEY)
-        previous_value: float | None = restored.get(PREVIOUS_VALUE_KEY)
 
         return cls(
             extra.native_value,
             extra.native_unit_of_measurement,
             hw_version,
             sw_version,
-            previous_value,
         )
 
 
@@ -514,7 +482,6 @@ class ScaleWeightSensor(ScaleSensor):
             self._attr_native_unit_of_measurement = (
                 last_state.native_unit_of_measurement
             )
-            self._previous_value = last_state.previous_value
 
             address = self._id
             device_registry = dr.async_get(self.hass)
@@ -580,7 +547,6 @@ class ScaleWeightSensor(ScaleSensor):
         return {
             HW_VERSION_KEY: self._attr_device_info.get(HW_VERSION_KEY),
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
-            PREVIOUS_VALUE_KEY: self._previous_value,
         }
 
     @property
@@ -591,7 +557,6 @@ class ScaleWeightSensor(ScaleSensor):
             self.native_unit_of_measurement,
             self._attr_device_info.get(HW_VERSION_KEY),
             self._attr_device_info.get(SW_VERSION_KEY),
-            self._previous_value,
         )
 
     async def async_get_last_sensor_data(
@@ -691,7 +656,6 @@ class ScaleUserWeightSensor(ScaleUserSensor):
             self._attr_native_unit_of_measurement = (
                 last_state.native_unit_of_measurement
             )
-            self._previous_value = last_state.previous_value
 
             address = self._id
             device_registry = dr.async_get(self.hass)
@@ -757,7 +721,6 @@ class ScaleUserWeightSensor(ScaleUserSensor):
         return {
             HW_VERSION_KEY: self._attr_device_info.get(HW_VERSION_KEY),
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
-            PREVIOUS_VALUE_KEY: self._previous_value,
         }
 
     @property
@@ -768,7 +731,6 @@ class ScaleUserWeightSensor(ScaleUserSensor):
             self.native_unit_of_measurement,
             self._attr_device_info.get(HW_VERSION_KEY),
             self._attr_device_info.get(SW_VERSION_KEY),
-            self._previous_value,
         )
 
     async def async_get_last_sensor_data(
