@@ -28,6 +28,7 @@ from .const import (
     CONF_USER_ID,
     CONF_USER_NAME,
     CONF_USER_PROFILES,
+    CONF_WEIGHT_HISTORY,
     DOMAIN,
 )
 from .coordinator import ScaleDataUpdateCoordinator
@@ -156,13 +157,20 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Copy existing data
         new_data = {**entry.data}
 
-        # Add mobile_notify_services field to each user profile
+        # Add mobile_notify_services and weight_history fields to each user profile
         user_profiles = new_data.get(CONF_USER_PROFILES, [])
         for user_profile in user_profiles:
             if CONF_MOBILE_NOTIFY_SERVICES not in user_profile:
                 user_profile[CONF_MOBILE_NOTIFY_SERVICES] = []
                 _LOGGER.debug(
                     "Added mobile_notify_services field to user %s",
+                    user_profile.get(CONF_USER_NAME, "unknown"),
+                )
+
+            if CONF_WEIGHT_HISTORY not in user_profile:
+                user_profile[CONF_WEIGHT_HISTORY] = []
+                _LOGGER.debug(
+                    "Added weight_history field to user %s",
                     user_profile.get(CONF_USER_NAME, "unknown"),
                 )
 
