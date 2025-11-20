@@ -1247,6 +1247,10 @@ class ScaleDataUpdateCoordinator:
             )
             return
 
+        # Create timestamp ONCE when measurement is received
+        # This ensures consistent timestamps across all code paths (auto-assign, detection, pending)
+        measurement_timestamp = datetime.now().isoformat()
+
         # Smart detection logic: Single user auto-assign (skip detection)
         if len(self._user_profiles) == 1:
             user_id = self._user_profiles[0].get(CONF_USER_ID)
@@ -1255,7 +1259,7 @@ class ScaleDataUpdateCoordinator:
                 user_id,
                 weight_kg,
             )
-            self._route_to_user(user_id, data)
+            self._route_to_user(user_id, data, timestamp=measurement_timestamp)
             return
 
         # Run person detection (matches users within weight tolerance)
@@ -1319,11 +1323,14 @@ class ScaleDataUpdateCoordinator:
                 auto_assign_user_id,
                 weight_kg,
             )
-            self._route_to_user(auto_assign_user_id, data)
+            self._route_to_user(
+                auto_assign_user_id, data, timestamp=measurement_timestamp
+            )
         elif len(all_possible_matches) > 1:
             # Multiple possible matches - store as pending and notify
             # The `all_possible_matches` list is now the definitive list of candidates.
-            timestamp = datetime.now().isoformat()
+            # Reuse measurement_timestamp for consistency
+            timestamp = measurement_timestamp
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
             self._pending_measurements[timestamp] = {
@@ -1345,12 +1352,13 @@ class ScaleDataUpdateCoordinator:
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
 
-    def _route_to_user(self, user_id: str, data: ScaleData) -> None:
+    def _route_to_user(self, user_id: str, data: ScaleData, timestamp: str) -> None:
         """Route measurement to a specific user's sensors.
 
         Args:
             user_id: The user ID to route to.
             data: The scale data to send.
+            timestamp: ISO timestamp of when the measurement was received.
         """
         # Find user profile using O(1) dictionary lookup
         user_profile = self._user_profiles_by_id.get(user_id)
@@ -1361,7 +1369,6 @@ class ScaleDataUpdateCoordinator:
         # Store measurement in user's weight history
         weight_kg = data.measurements.get("weight")
         impedance = data.measurements.get("impedance")
-        timestamp = datetime.now().isoformat()
 
         if weight_kg is not None:
             # Add to persistent history
@@ -1690,9 +1697,11 @@ class ScaleDataUpdateCoordinator:
 
             # Get raw measurements before removing from pending
             raw_measurements = {}
+            measurement_timestamp = None
             if timestamp in self._pending_measurements:
                 pending_data = self._pending_measurements[timestamp]
                 raw_measurements = pending_data["measurements"]
+                measurement_timestamp = timestamp  # Preserve original timestamp
                 # Remove from pending
                 del self._pending_measurements[timestamp]
                 self._ambiguous_notifications.discard(timestamp)
@@ -1706,8 +1715,11 @@ class ScaleDataUpdateCoordinator:
                     raw_measurements["impedance"] = impedance
 
             # Create ScaleData and route to user
+            # Pass the original timestamp to preserve measurement time
             scale_data = ScaleData(measurements=raw_measurements)
-            self._route_to_user(auto_assign_user_id, scale_data)
+            self._route_to_user(
+                auto_assign_user_id, scale_data, timestamp=measurement_timestamp
+            )
             return
 
         # Build the user list for the notification message
@@ -1818,8 +1830,9 @@ class ScaleDataUpdateCoordinator:
 
         # Create a ScaleData object with raw measurements and route to the user
         # Body metrics will be calculated by _route_to_user() based on the user's profile
+        # Pass the original timestamp to preserve measurement time
         scale_data = ScaleData(measurements=measurements)
-        self._route_to_user(user_id, scale_data)
+        self._route_to_user(user_id, scale_data, timestamp=timestamp)
 
         # Clean up tracking structures
         self._ambiguous_notifications.discard(timestamp)
@@ -1965,14 +1978,18 @@ class ScaleDataUpdateCoordinator:
             _LOGGER.error("Target user %s not found in user profiles", to_user_id)
             return False
 
+        # Extract timestamp from measurements if available
+        measurement_timestamp = measurements.get("timestamp")
+
         _LOGGER.debug(
-            "Reassigning raw measurement from user %s to user %s (weight: %.2f kg%s)",
+            "Reassigning raw measurement from user %s to user %s (weight: %.2f kg%s, timestamp: %s)",
             from_user_id,
             to_user_id,
             measurements.get("weight"),
             f", impedance: {measurements.get('impedance')} Ω"
             if "impedance" in measurements
             else "",
+            measurement_timestamp if measurement_timestamp else "not available",
         )
 
         # Create ScaleData with only raw measurements
@@ -1991,7 +2008,8 @@ class ScaleDataUpdateCoordinator:
                 )
 
         # Route to target user (this will add to target's history)
-        self._route_to_user(to_user_id, scale_data)
+        # Pass the original timestamp to preserve measurement time
+        self._route_to_user(to_user_id, scale_data, timestamp=measurement_timestamp)
 
         # Signal source user's sensors to revert to previous using direct callback registry
         revert_data = ScaleData(measurements={"_revert_": True})
