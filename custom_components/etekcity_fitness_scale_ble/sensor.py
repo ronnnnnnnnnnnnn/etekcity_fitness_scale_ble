@@ -420,6 +420,16 @@ class ScaleSensor(RestoreSensor):
 
             self.async_write_ha_state()
             _LOGGER.debug("Sensor %s updated successfully", self.entity_id)
+        else:
+            # Key is missing from update - mark sensor unavailable
+            # Coordinator is the source of truth and decides what goes in measurements
+            _LOGGER.debug(
+                "Value for sensor %s not in update, marking unavailable",
+                self.entity_id,
+            )
+            self._attr_available = False
+            self._attr_native_value = None
+            self.async_write_ha_state()
 
 
 HW_VERSION_KEY = "hw_version"

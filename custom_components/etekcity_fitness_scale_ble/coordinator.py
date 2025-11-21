@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 import logging
+from math import floor
 import platform
 from collections.abc import Callable
 from functools import partial
@@ -1390,27 +1391,39 @@ class ScaleDataUpdateCoordinator:
                 weight_kg = data.measurements.get("weight")
                 impedance = data.measurements.get("impedance")
 
-                if weight_kg and impedance:
-                    birthdate_str = user_profile.get("birthdate")
-                    if isinstance(birthdate_str, str):
-                        birthdate = dt_date.fromisoformat(birthdate_str)
-                    else:
-                        birthdate = birthdate_str
-
-                    sex_str = user_profile.get("sex", "Male")
-                    sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
+                if weight_kg:
                     height_m = user_profile.get("height") / 100.0
-                    age = _calc_age(birthdate)
-                    body_metrics = BodyMetrics(weight_kg, height_m, age, sex, impedance)
-                    metrics_dict = _as_dictionary(body_metrics)
+                    if impedance:
+                        birthdate_str = user_profile.get("birthdate")
+                        if isinstance(birthdate_str, str):
+                            birthdate = dt_date.fromisoformat(birthdate_str)
+                        else:
+                            birthdate = birthdate_str
 
-                    # Add body metrics to measurements
-                    data.measurements.update(metrics_dict)
-                    _LOGGER.debug(
-                        "Added body metrics for user %s: %s",
-                        user_profile.get("name", user_id),
-                        list(metrics_dict.keys()),
-                    )
+                        sex_str = user_profile.get("sex", "Male")
+                        sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
+                        age = _calc_age(birthdate)
+                        body_metrics = BodyMetrics(
+                            weight_kg, height_m, age, sex, impedance
+                        )
+                        metrics_dict = _as_dictionary(body_metrics)
+
+                        # Add body metrics to measurements
+                        data.measurements.update(metrics_dict)
+                        _LOGGER.debug(
+                            "Added body metrics for user %s: %s",
+                            user_profile.get("name", user_id),
+                            list(metrics_dict.keys()),
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "No impedance measurement available for user %s, skipping impedance-dependent body metrics calculation",
+                            user_id,
+                        )
+                        # Not going through the body metrics calculation, so we calculate BMI manually for now.
+                        data.measurements["body_mass_index"] = (
+                            floor(weight_kg / (height_m**2) * 100) / 100
+                        )
             except Exception as ex:
                 _LOGGER.error(
                     "Error calculating body metrics for user %s: %s", user_id, ex
@@ -1603,10 +1616,6 @@ class ScaleDataUpdateCoordinator:
             timestamp: Timestamp of the measurement.
             impedance: Optional impedance measurement in ohms.
         """
-        from datetime import datetime
-
-        from .adaptive_tolerance import get_tolerance_for_user
-
         # Send mobile notifications first (async operation)
         notified_services = (
             await self._send_mobile_notifications_for_ambiguous_measurement(
@@ -1641,33 +1650,37 @@ class ScaleDataUpdateCoordinator:
             fmt = f"{value:.{precision}f} {unit}"
             return fmt
 
-        # Categorize users: those within tolerance vs all others
-        matching_users = []  # (user_id, weight_diff, user_name)
-        other_users = []  # (user_id, user_name)
-        current_time = datetime.now()
+        # Categorize candidates: those with weight history vs new users
+        # Users in ambiguous_user_ids either:
+        # 1. Already matched within tolerance in detect_person() (from detector)
+        # 2. Have no history (new users added by update_listeners)
+        # 3. Were added because no one matched (fallback to all users)
+        matching_users = []  # (user_id, weight_diff, user_name) - users with history
+        other_users = []  # (user_id, user_name) - new users without history
 
         for user_id in ambiguous_user_ids:
             user_profile = self._user_profiles_by_id.get(user_id)
             if not user_profile:
+                # Should never happen - would mean user was deleted between update_listeners() and here
+                _LOGGER.warning(
+                    "User profile %s not found in notification creation (should not happen)",
+                    user_id,
+                )
                 continue
 
             user_name = user_profile.get(CONF_USER_NAME, user_id)
+            weight_history = user_profile.get(CONF_WEIGHT_HISTORY, [])
 
-            # Calculate adaptive tolerance for this user
-            ref_weight, tolerance_kg = get_tolerance_for_user(
-                user_profile, current_time
-            )
-
-            # If user has usable history, check if within adaptive tolerance
-            if ref_weight is not None and tolerance_kg is not None:
-                weight_diff = abs(weight_kg - ref_weight)
-                if weight_diff <= tolerance_kg:
-                    matching_users.append((user_id, weight_diff, user_name))
-                else:
-                    other_users.append((user_id, user_name))
-            else:
-                # User has no usable history (new user or stale data)
+            # Check if user has weight history for ranking
+            if not weight_history:
+                # No history - new user
                 other_users.append((user_id, user_name))
+                continue
+
+            # Get last measurement weight for ranking (simpler than reference weight calculation)
+            last_weight = weight_history[-1]["weight_kg"]
+            weight_diff = abs(weight_kg - last_weight)
+            matching_users.append((user_id, weight_diff, user_name))
 
         # Sort matching users by weight difference (closest first)
         matching_users.sort(key=lambda x: x[1])
@@ -1697,11 +1710,10 @@ class ScaleDataUpdateCoordinator:
 
             # Get raw measurements before removing from pending
             raw_measurements = {}
-            measurement_timestamp = None
+            measurement_timestamp = timestamp
             if timestamp in self._pending_measurements:
                 pending_data = self._pending_measurements[timestamp]
                 raw_measurements = pending_data["measurements"]
-                measurement_timestamp = timestamp  # Preserve original timestamp
                 # Remove from pending
                 del self._pending_measurements[timestamp]
                 self._ambiguous_notifications.discard(timestamp)
