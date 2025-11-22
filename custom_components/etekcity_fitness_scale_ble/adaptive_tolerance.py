@@ -260,6 +260,8 @@ def calculate_recency_multiplier(days_since_last: float) -> float:
         >>> calculate_recency_multiplier(60)
         2.16  # ~116% increase
         >>> calculate_recency_multiplier(90)
+        2.42  # ~142% increase
+        >>> calculate_recency_multiplier(100)
         2.5  # Capped at max
         >>> calculate_recency_multiplier(365)
         2.5  # Still capped

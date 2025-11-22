@@ -86,29 +86,30 @@ class PersonDetector:
 
     def detect_person(
         self, weight_kg: float, user_profiles: list[dict]
-    ) -> tuple[str | None, list[str]]:
+    ) -> list[str]:
         """Detect which person is using the scale based on weight.
 
-        Uses adaptive tolerance based on each user's weight history, variance,
-        and time since last measurement. Falls back to treating users with no
-        history or stale history (90+ days) as new users.
+        Returns a list of candidate user IDs who could match this measurement.
+        Candidates include:
+        1. Users whose weight is within adaptive tolerance
+        2. Users without weight history (new users or stale history 90+ days)
+
+        All candidates are filtered by location (excludes users marked "not_home").
 
         Args:
             weight_kg: Current weight measurement in kilograms.
             user_profiles: List of user profile dictionaries with user_id.
 
         Returns:
-            A tuple of (detected_user_id, ambiguous_user_ids).
-            - If exactly one user matches: (user_id, [])
-            - If multiple users match: (None, [user_id1, user_id2, ...])
-            - If no users match: (None, [])
+            List of candidate user IDs. Empty list if no candidates found.
         """
         if not user_profiles:
             _LOGGER.debug("No user profiles configured, cannot detect person")
-            return (None, [])
+            return []
 
         current_time = datetime.now()
-        matching_users = []
+        weight_matches = []
+        users_without_history = []
 
         for user_profile in user_profiles:
             user_id = user_profile.get("user_id")
@@ -124,9 +125,10 @@ class PersonDetector:
             # If tolerance is None, user has no usable history (new user or 90+ day gap)
             if tolerance_kg is None:
                 _LOGGER.debug(
-                    "User %s has no usable weight history (new user or stale data), skipping tolerance check",
+                    "User %s has no usable weight history (new user or stale data), adding as candidate",
                     user_name,
                 )
+                users_without_history.append(user_id)
                 continue
 
             # Check if current weight is within adaptive tolerance
@@ -140,7 +142,7 @@ class PersonDetector:
                     weight_diff,
                     tolerance_kg,
                 )
-                matching_users.append(user_id)
+                weight_matches.append(user_id)
             else:
                 _LOGGER.debug(
                     "User %s does not match (ref: %.2f kg, current: %.2f kg, diff: %.2f kg > tolerance: %.2f kg)",
@@ -151,28 +153,36 @@ class PersonDetector:
                     tolerance_kg,
                 )
 
-        # Return results based on number of matches
-        if len(matching_users) == 1:
+        # Combine weight matches and users without history
+        all_candidates = weight_matches + users_without_history
+
+        if not all_candidates:
             _LOGGER.debug(
-                "Detected person: %s (weight: %.2f kg)",
-                matching_users[0],
+                "No candidates found for weight: %.2f kg",
                 weight_kg,
             )
-            return (matching_users[0], [])
-        elif len(matching_users) > 1:
-            _LOGGER.debug(
-                "Ambiguous detection: %d users match (weight: %.2f kg): %s",
-                len(matching_users),
-                weight_kg,
-                matching_users,
-            )
-            return (None, matching_users)
-        else:
-            _LOGGER.debug(
-                "No matching user found for weight: %.2f kg",
-                weight_kg,
-            )
-            return (None, [])
+            return []
+
+        _LOGGER.debug(
+            "Found %d candidate(s) for weight %.2f kg: %d weight match(es), %d user(s) without history",
+            len(all_candidates),
+            weight_kg,
+            len(weight_matches),
+            len(users_without_history),
+        )
+
+        # Apply location filtering to all candidates
+        filtered_candidates = self._filter_candidates_by_location(
+            all_candidates, user_profiles
+        )
+
+        _LOGGER.debug(
+            "After location filtering: %d candidate(s) remain: %s",
+            len(filtered_candidates),
+            filtered_candidates,
+        )
+
+        return filtered_candidates
 
     def get_users_with_history(self, user_profiles: list[dict]) -> list[str]:
         """Get list of user IDs that have usable weight history.

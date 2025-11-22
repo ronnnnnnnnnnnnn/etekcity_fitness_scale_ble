@@ -842,8 +842,8 @@ class ScalePendingMeasurementsSensor(SensorEntity):
         """When entity is added to hass."""
         await super().async_added_to_hass()
 
-        # Register callback for updates
-        self._remove_listener = self._coordinator.add_listener(
+        # Register diagnostic callback for updates (no data passed)
+        self._remove_listener = self._coordinator.add_diagnostic_listener(
             self._handle_coordinator_update
         )
 
@@ -858,8 +858,12 @@ class ScalePendingMeasurementsSensor(SensorEntity):
         await super().async_will_remove_from_hass()
 
     @callback
-    def _handle_coordinator_update(self, data: ScaleData) -> None:
-        """Handle coordinator updates."""
+    def _handle_coordinator_update(self) -> None:
+        """Handle coordinator updates.
+
+        This is a diagnostic sensor that pulls data directly from the coordinator,
+        so it doesn't need ScaleData passed to it.
+        """
         # Update state when coordinator data changes (new measurements)
         self.async_write_ha_state()
 

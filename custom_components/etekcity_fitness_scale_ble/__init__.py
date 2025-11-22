@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
 
 import voluptuous as vol
+
+from datetime import datetime
 
 from bleak_retry_connector import close_stale_connections_by_address
 from homeassistant.components import bluetooth
@@ -13,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_UNIT_SYSTEM, Platform, UnitOfMass
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from urllib.parse import unquote
 
 from .const import (
     CONF_BIRTHDATE,
@@ -398,24 +400,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not action.startswith("SCALE_"):
             return
 
+        def _decode_action_payload(
+            action_value: str, prefix: str
+        ) -> tuple[str, str] | None:
+            """Extract user_id and timestamp tokens from an action string."""
+            if not action_value.startswith(prefix):
+                return None
+
+            payload = action_value[len(prefix) :]
+            if "_" not in payload:
+                return None
+
+            user_token, timestamp_token = payload.rsplit("_", 1)
+            if not user_token or not timestamp_token:
+                return None
+
+            return unquote(user_token), unquote(timestamp_token)
+
         try:
-            # Parse action: SCALE_ASSIGN_{user_id}_{timestamp} or SCALE_NOT_ME_{user_id}_{timestamp}
-            parts = action.split(
-                "_", 3
-            )  # Split into ["SCALE", "ASSIGN"/"NOT", "ME"/{user_id}, {timestamp}]
-
-            if len(parts) < 3:
-                _LOGGER.warning("Invalid scale action format: %s", action)
-                return
-
-            if parts[1] == "ASSIGN":
-                # SCALE_ASSIGN_{user_id}_{timestamp}
-                if len(parts) != 4:
+            if action.startswith("SCALE_ASSIGN_"):
+                decoded = _decode_action_payload(action, "SCALE_ASSIGN_")
+                if not decoded:
                     _LOGGER.warning("Invalid SCALE_ASSIGN action format: %s", action)
                     return
 
-                user_id = parts[2]
-                timestamp = parts[3]
+                user_id, timestamp = decoded
 
                 _LOGGER.info(
                     "Mobile app action: assigning measurement %s to user %s",
@@ -463,14 +472,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         user_id,
                     )
 
-            elif parts[1] == "NOT" and parts[2] == "ME":
-                # SCALE_NOT_ME_{user_id}_{timestamp}
-                if len(parts) != 4:
+            elif action.startswith("SCALE_NOT_ME_"):
+                decoded = _decode_action_payload(action, "SCALE_NOT_ME_")
+                if not decoded:
                     _LOGGER.warning("Invalid SCALE_NOT_ME action format: %s", action)
                     return
 
-                user_id = parts[3].rsplit("_", 1)[0] if "_" in parts[3] else parts[3]
-                timestamp = parts[3].rsplit("_", 1)[-1] if "_" in parts[3] else ""
+                user_id, timestamp = decoded
 
                 # For "Not Me" action, we just log it
                 # The notification is already dismissed by the mobile app
@@ -480,6 +488,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     timestamp,
                 )
                 # No further action needed - measurement remains pending for other users
+            else:
+                _LOGGER.warning("Unknown scale action: %s", action)
 
         except Exception as ex:
             _LOGGER.error("Error handling mobile app notification action: %s", ex)

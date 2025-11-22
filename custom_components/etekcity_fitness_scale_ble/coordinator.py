@@ -10,6 +10,7 @@ import platform
 from collections.abc import Callable
 from functools import partial
 from typing import Any, Literal
+from urllib.parse import quote
 
 from aioesphomeapi import APIClient, BluetoothProxyFeature
 from aioesphomeapi.model import BluetoothLEAdvertisement, DeviceInfo
@@ -646,6 +647,8 @@ class ScaleDataUpdateCoordinator:
         self._device_name = device_name
         self._lock = asyncio.Lock()
         self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
+        # Diagnostic-only listeners that don't receive scale data (just notifications to refresh)
+        self._diagnostic_listeners: list[Callable[[], None]] = []
         # User-specific callback registry: user_id -> list of callbacks
         self._user_callbacks: dict[str, list[Callable[[ScaleData], None]]] = {}
         self._user_profiles = user_profiles
@@ -940,11 +943,11 @@ class ScaleDataUpdateCoordinator:
             try:
                 _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
                 self._client = EtekcitySmartFitnessScale(
-                    self.address,
-                    self.update_listeners,
-                    self._display_unit,
-                    bleak_scanner_backend=scanner,
-                )
+                            self.address,
+                            self.update_listeners,
+                            self._display_unit,
+                            bleak_scanner_backend=scanner,
+                        )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")
@@ -1081,6 +1084,32 @@ class ScaleDataUpdateCoordinator:
         self._listeners[remove_listener] = update_callback
         return remove_listener
 
+    @callback
+    def add_diagnostic_listener(
+        self, update_callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register a diagnostic sensor listener.
+
+        Diagnostic listeners receive simple notifications to refresh their state
+        without receiving ScaleData. This prevents unintended side effects on
+        other sensors when diagnostic state changes.
+
+        Args:
+            update_callback: Function to call when diagnostic state changes (no args).
+
+        Returns:
+            Function to call to remove the listener.
+        """
+
+        @callback
+        def remove_listener() -> None:
+            """Remove diagnostic listener."""
+            if update_callback in self._diagnostic_listeners:
+                self._diagnostic_listeners.remove(update_callback)
+
+        self._diagnostic_listeners.append(update_callback)
+        return remove_listener
+
     def add_user_listener(
         self, user_id: str, update_callback: Callable[[ScaleData], None]
     ) -> Callable[[], None]:
@@ -1201,16 +1230,16 @@ class ScaleDataUpdateCoordinator:
 
         This is used to trigger updates to diagnostic sensors that display coordinator
         state (like pending measurements) rather than scale measurement data.
-        """
-        # Create empty scale data to trigger sensor state updates
-        empty_data = ScaleData(measurements={})
 
-        # Notify all general listeners (includes diagnostic sensors)
-        for listener_callback in self._listeners.values():
+        Diagnostic sensors pull their data directly from coordinator state, so they
+        only need a notification to refresh, not actual ScaleData.
+        """
+        # Notify diagnostic listeners (no data passed, they pull from coordinator)
+        for listener_callback in self._diagnostic_listeners:
             try:
-                listener_callback(empty_data)
+                listener_callback()
             except Exception as ex:
-                _LOGGER.error("Error notifying listener: %s", ex)
+                _LOGGER.error("Error notifying diagnostic listener: %s", ex)
 
     @callback
     def update_listeners(self, data: ScaleData) -> None:
@@ -1263,80 +1292,46 @@ class ScaleDataUpdateCoordinator:
             self._route_to_user(user_id, data, timestamp=measurement_timestamp)
             return
 
-        # Run person detection (matches users within weight tolerance)
-        detected_user_id, ambiguous_user_ids = self._person_detector.detect_person(
+        # Run person detection (returns list of candidates: weight matches + users without history)
+        # Location filtering is already applied by the detector
+        candidates = self._person_detector.detect_person(
             weight_kg, self._user_profiles
         )
 
-        # Check which users have measurement history
-        users_with_history = self._person_detector.get_users_with_history(
-            self._user_profiles
-        )
-        users_without_history = [
-            u.get(CONF_USER_ID)
-            for u in self._user_profiles
-            if u.get(CONF_USER_ID) is not None
-            and u.get(CONF_USER_ID) not in users_with_history
-        ]
-
-        # Compile list of all possible matches:
-        # - Likely matches from detector (detected_user_id or ambiguous_user_ids)
-        # - All users without history (always included)
-        all_possible_matches = set()
-
-        # Add likely matches from detector
-        if detected_user_id:
-            # Single match from detector
-            all_possible_matches.add(detected_user_id)
-        elif ambiguous_user_ids:
-            # Multiple matches from detector
-            all_possible_matches.update(ambiguous_user_ids)
-
-        # Always include users without history in the list
-        all_possible_matches.update(users_without_history)
-
-        # If no possible matches were found (e.g., out of tolerance for all users with history)
-        # then per the requirement, we make all users possible matches.
-        if not all_possible_matches:
-            all_possible_matches.update(
+        # Fallback: If no candidates found, include all users
+        # This prevents data loss when weight is out of tolerance for all users
+        if not candidates:
+            _LOGGER.debug(
+                "No candidates detected for weight %.2f kg, falling back to all users",
+                weight_kg,
+            )
+            candidates = [
                 u.get(CONF_USER_ID)
                 for u in self._user_profiles
                 if u.get(CONF_USER_ID) is not None
-            )
-
-        # Convert to list for consistent ordering and processing
-        all_possible_matches = list(all_possible_matches)
-
-        # Apply location-based filtering as the final step, but ensure we don't end up with zero
-        filtered_matches = self._person_detector._filter_candidates_by_location(
-            all_possible_matches, self._user_profiles
-        )
-
-        if filtered_matches:
-            all_possible_matches = filtered_matches
+            ]
 
         # Handle detection results
-        if len(all_possible_matches) == 1:
-            # Exactly one possible match - auto-assign
-            auto_assign_user_id = all_possible_matches[0]
+        if len(candidates) == 1:
+            # Exactly one candidate - auto-assign
+            auto_assign_user_id = candidates[0]
             _LOGGER.debug(
-                "Single possible match (user %s) - auto-assigning measurement (weight: %.2f kg)",
+                "Single candidate (user %s) - auto-assigning measurement (weight: %.2f kg)",
                 auto_assign_user_id,
                 weight_kg,
             )
             self._route_to_user(
                 auto_assign_user_id, data, timestamp=measurement_timestamp
             )
-        elif len(all_possible_matches) > 1:
-            # Multiple possible matches - store as pending and notify
-            # The `all_possible_matches` list is now the definitive list of candidates.
+        elif len(candidates) > 1:
+            # Multiple candidates - store as pending and notify
             # Reuse measurement_timestamp for consistency
             timestamp = measurement_timestamp
             # Store only raw measurements (body metrics will be calculated on assignment)
             raw_measurements = self._extract_raw_measurements(data)
             self._pending_measurements[timestamp] = {
                 "measurements": raw_measurements,
-                "candidates": all_possible_matches,
+                "candidates": candidates,
                 "notified_mobile_services": [],  # Will be populated when notifications sent
             }
 
@@ -1346,7 +1341,7 @@ class ScaleDataUpdateCoordinator:
             # Schedule async notification (runs in background)
             self._hass.async_create_task(
                 self._create_ambiguous_notification(
-                    weight_kg, impedance, all_possible_matches, timestamp
+                    weight_kg, impedance, candidates, timestamp
                 )
             )
 
@@ -1503,6 +1498,9 @@ class ScaleDataUpdateCoordinator:
                     device_to_users[service_name] = []
                 device_to_users[service_name].append((user_id, user_name))
 
+        # Encode timestamp for safe embedding in action identifiers
+        encoded_timestamp = quote(timestamp, safe="")
+
         # Send one notification per device with appropriate message and actions
         for service_name, users in device_to_users.items():
             try:
@@ -1511,14 +1509,15 @@ class ScaleDataUpdateCoordinator:
                     # Personalized notification for single user
                     user_id, user_name = users[0]
                     message = f"{weight_display} at {time_display}. Is this yours?"
+                    encoded_user_id = quote(user_id, safe="")
 
                     actions = [
                         {
-                            "action": f"SCALE_ASSIGN_{user_id}_{timestamp}",
+                            "action": f"SCALE_ASSIGN_{encoded_user_id}_{encoded_timestamp}",
                             "title": "Assign to Me",
                         },
                         {
-                            "action": f"SCALE_NOT_ME_{user_id}_{timestamp}",
+                            "action": f"SCALE_NOT_ME_{encoded_user_id}_{encoded_timestamp}",
                             "title": "Not Me",
                         },
                     ]
@@ -1541,9 +1540,10 @@ class ScaleDataUpdateCoordinator:
                     # Build action buttons (limit to first 3 users due to platform constraints)
                     actions = []
                     for user_id, user_name in users[:3]:
+                        encoded_user_id = quote(user_id, safe="")
                         actions.append(
                             {
-                                "action": f"SCALE_ASSIGN_{user_id}_{timestamp}",
+                                "action": f"SCALE_ASSIGN_{encoded_user_id}_{encoded_timestamp}",
                                 "title": f"Assign to {user_name}",
                             }
                         )
@@ -1617,18 +1617,6 @@ class ScaleDataUpdateCoordinator:
             impedance: Optional impedance measurement in ohms.
         """
         # Send mobile notifications first (async operation)
-        notified_services = (
-            await self._send_mobile_notifications_for_ambiguous_measurement(
-                timestamp, weight_kg, impedance, ambiguous_user_ids
-            )
-        )
-
-        # Store notified services in pending measurement for later dismissal
-        if timestamp in self._pending_measurements:
-            self._pending_measurements[timestamp]["notified_mobile_services"] = (
-                notified_services
-            )
-
         # Resolve device info for notification context
         device_reg = dr.async_get(self._hass)
         device_entry = device_reg.async_get_device(
@@ -1732,6 +1720,32 @@ class ScaleDataUpdateCoordinator:
             self._route_to_user(
                 auto_assign_user_id, scale_data, timestamp=measurement_timestamp
             )
+
+            # Dismiss mobile notifications if any were sent before we determined single candidate
+            # (This handles race condition where notifications were sent before filtering)
+            tag = f"scale_measurement_{timestamp}"
+            if timestamp in self._pending_measurements:
+                notified_services = self._pending_measurements[timestamp].get(
+                    "notified_mobile_services", []
+                )
+                for user_id_notified, service_name in notified_services:
+                    self._hass.async_create_task(
+                        self._hass.services.async_call(
+                            "notify",
+                            service_name,
+                            {"message": "clear_notification", "data": {"tag": tag}},
+                        )
+                    )
+                    _LOGGER.debug(
+                        "Dismissed mobile notification for user %s on %s (tag: %s) due to auto-assignment",
+                        user_id_notified,
+                        service_name,
+                        tag,
+                    )
+
+            # Update diagnostic sensors to reflect removed pending measurement
+            self._notify_diagnostic_sensors()
+
             return
 
         # Build the user list for the notification message
@@ -1778,6 +1792,19 @@ class ScaleDataUpdateCoordinator:
             "This notification will auto-dismiss once the measurement is assigned."
         )
 
+        # Send mobile app notifications to relevant users (only if multiple candidates)
+        notified_services = (
+            await self._send_mobile_notifications_for_ambiguous_measurement(
+                timestamp, weight_kg, impedance, ambiguous_user_ids
+            )
+        )
+
+        # Store notified services in pending measurement for later dismissal
+        if timestamp in self._pending_measurements:
+            self._pending_measurements[timestamp]["notified_mobile_services"] = (
+                notified_services
+            )
+
         # Track this ambiguous notification
         self._ambiguous_notifications.add(timestamp)
 
@@ -1787,6 +1814,9 @@ class ScaleDataUpdateCoordinator:
             title=f"{device_name}: Choose User",
             notification_id=f"etekcity_scale_{self.address}_{timestamp}",
         )
+
+        # Update diagnostic sensors to reflect new pending measurement
+        self._notify_diagnostic_sensors()
 
     def get_user_profiles(self) -> list[dict]:
         """Get all user profiles.
