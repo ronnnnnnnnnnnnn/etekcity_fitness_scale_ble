@@ -183,7 +183,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=self.context["title_placeholders"]["name"],
                     data={
-                        CONF_UNIT_SYSTEM: UnitOfMass.KILOGRAMS,  # ESF24 only supports kg
+                        CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM],
                         CONF_CALC_BODY_METRICS: False,  # ESF24 doesn't support body metrics
                         CONF_SCALE_MODEL: scale_model,
                     },
@@ -206,7 +206,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         # Show confirmation form
         description_placeholders = self.context["title_placeholders"].copy()
 
-        # For ESF24, show a simple confirmation without unit/body metrics options
+        # For ESF24, show a simple confirmation without body metrics option
         if scale_model == ScaleModel.ESF24:
             description_placeholders["esf24_note"] = (
                 " (ESF-24 detected - experimental support, weight only)"
@@ -214,7 +214,16 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_show_form(
                 step_id="bluetooth_confirm",
                 description_placeholders=description_placeholders,
-                data_schema=vol.Schema({}),  # No user input needed for ESF24
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_UNIT_SYSTEM): vol.In(
+                            {
+                                UnitOfMass.KILOGRAMS: "Metric",
+                                UnitOfMass.POUNDS: "Imperial",
+                            }
+                        ),
+                    }
+                ),
             )
         else:
             # For ESF551, show full configuration options
@@ -321,11 +330,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             self.context["scale_model"] = scale_model
 
             if scale_model == ScaleModel.ESF24:
-                # ESF24: Create entry with fixed values
                 return self.async_create_entry(
                     title=discovery.title,
                     data={
-                        CONF_UNIT_SYSTEM: UnitOfMass.KILOGRAMS,
+                        CONF_UNIT_SYSTEM: user_input[CONF_UNIT_SYSTEM],
                         CONF_CALC_BODY_METRICS: False,
                         CONF_SCALE_MODEL: scale_model,
                     },
@@ -395,11 +403,6 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         scale_model = self._entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
 
         if user_input is not None:
-            if scale_model == ScaleModel.ESF24:
-                # ESF24: No reconfiguration allowed, just show info
-                return self.async_abort(reason="reconfigure_successful")
-
-            # ESF551: Handle normal reconfiguration
             if user_input[CONF_CALC_BODY_METRICS]:
                 self.context[CONF_UNIT_SYSTEM] = user_input[CONF_UNIT_SYSTEM]
                 return await self.async_step_reconfigure_body_metrics()
@@ -413,13 +416,18 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Show reconfiguration form
         if scale_model == ScaleModel.ESF24:
-            # ESF24: Show info that reconfiguration is not available
             return self.async_show_form(
                 step_id="reconfigure",
                 description_placeholders={
-                    "esf24_note": " (ESF-24 scale configuration cannot be changed. This device only supports weight measurements in kilograms.)"
+                    "esf24_note": " (ESF-24 - experimental support, weight only)"
                 },
-                data_schema=vol.Schema({}),  # No user input needed
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_UNIT_SYSTEM, default=unit_system): vol.In(
+                            {UnitOfMass.KILOGRAMS: "Metric", UnitOfMass.POUNDS: "Imperial"}
+                        ),
+                    }
+                ),
             )
 
         # ESF551: Show full reconfiguration options
