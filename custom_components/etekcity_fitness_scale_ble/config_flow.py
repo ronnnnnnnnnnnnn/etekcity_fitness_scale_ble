@@ -415,6 +415,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         # Show reconfiguration form
+        if not (unit_system := self._entry.data.get(CONF_UNIT_SYSTEM)):
+            unit_system = UnitOfMass.KILOGRAMS
+            
         if scale_model == ScaleModel.ESF24:
             return self.async_show_form(
                 step_id="reconfigure",
@@ -433,9 +436,6 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         # ESF551: Show full reconfiguration options
         if not (body_metrics_enabled := self._entry.data.get(CONF_CALC_BODY_METRICS)):
             body_metrics_enabled = False
-
-        if not (unit_system := self._entry.data.get(CONF_UNIT_SYSTEM)):
-            unit_system = vol.UNDEFINED
 
         return self.async_show_form(
             step_id="reconfigure",
