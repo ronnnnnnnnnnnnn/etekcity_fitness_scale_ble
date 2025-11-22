@@ -943,11 +943,11 @@ class ScaleDataUpdateCoordinator:
             try:
                 _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
                 self._client = EtekcitySmartFitnessScale(
-                            self.address,
-                            self.update_listeners,
-                            self._display_unit,
-                            bleak_scanner_backend=scanner,
-                        )
+                    self.address,
+                    self.update_listeners,
+                    self._display_unit,
+                    bleak_scanner_backend=scanner,
+                )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")
@@ -1294,9 +1294,7 @@ class ScaleDataUpdateCoordinator:
 
         # Run person detection (returns list of candidates: weight matches + users without history)
         # Location filtering is already applied by the detector
-        candidates = self._person_detector.detect_person(
-            weight_kg, self._user_profiles
-        )
+        candidates = self._person_detector.detect_person(weight_kg, self._user_profiles)
 
         # Fallback: If no candidates found, include all users
         # This prevents data loss when weight is out of tolerance for all users
@@ -1638,13 +1636,22 @@ class ScaleDataUpdateCoordinator:
             fmt = f"{value:.{precision}f} {unit}"
             return fmt
 
-        # Categorize candidates: those with weight history vs new users
-        # Users in ambiguous_user_ids either:
-        # 1. Already matched within tolerance in detect_person() (from detector)
-        # 2. Have no history (new users added by update_listeners)
-        # 3. Were added because no one matched (fallback to all users)
+        # Categorize candidates for notification display:
+        # - Matching users: Have usable history (show weight difference)
+        # - Other users: No usable history (new users or stale data 90+ days)
+        #
+        # Candidates come from PersonDetector which includes:
+        # 1. Users matching within adaptive tolerance
+        # 2. Users without usable history (new users or stale history)
+        #
+        # If PersonDetector returns empty, coordinator fallback adds all users.
         matching_users = []  # (user_id, weight_diff, user_name) - users with history
         other_users = []  # (user_id, user_name) - new users without history
+
+        # Get users with valid (usable) history using same logic as PersonDetector
+        users_with_valid_history = self._person_detector.get_users_with_history(
+            self._user_profiles
+        )
 
         for user_id in ambiguous_user_ids:
             user_profile = self._user_profiles_by_id.get(user_id)
@@ -1657,15 +1664,15 @@ class ScaleDataUpdateCoordinator:
                 continue
 
             user_name = user_profile.get(CONF_USER_NAME, user_id)
-            weight_history = user_profile.get(CONF_WEIGHT_HISTORY, [])
 
-            # Check if user has weight history for ranking
-            if not weight_history:
-                # No history - new user
+            # Use consistent definition of "usable history" from PersonDetector
+            if user_id not in users_with_valid_history:
+                # No usable history (new user OR stale history 90+ days)
                 other_users.append((user_id, user_name))
                 continue
 
-            # Get last measurement weight for ranking (simpler than reference weight calculation)
+            # User has usable history - get last measurement for ranking
+            weight_history = user_profile.get(CONF_WEIGHT_HISTORY, [])
             last_weight = weight_history[-1]["weight_kg"]
             weight_diff = abs(weight_kg - last_weight)
             matching_users.append((user_id, weight_diff, user_name))
@@ -1677,75 +1684,28 @@ class ScaleDataUpdateCoordinator:
         other_users.sort(key=lambda x: x[1])
 
         total_candidates = len(matching_users) + len(other_users)
+
+        # Defensive check: This function should only be called for ambiguous (multiple) candidates
+        # Single candidates are auto-assigned in update_listeners() before notification is created
         if total_candidates == 1:
-            # Single candidate - auto-assign without notification
-            if matching_users:
-                auto_assign_user_id = matching_users[0][0]
-                auto_assign_user_name = matching_users[0][2]
-                diff = matching_users[0][1]
-                _LOGGER.debug(
-                    "Single candidate after filtering, auto-assigning to %s (weight diff: ±%.2f kg)",
-                    auto_assign_user_name,
-                    diff,
-                )
-            else:
-                auto_assign_user_id = other_users[0][0]
-                auto_assign_user_name = other_users[0][1]
-                _LOGGER.debug(
-                    "Single candidate with no history, auto-assigning to %s",
-                    auto_assign_user_name,
-                )
-
-            # Get raw measurements before removing from pending
-            raw_measurements = {}
-            measurement_timestamp = timestamp
-            if timestamp in self._pending_measurements:
-                pending_data = self._pending_measurements[timestamp]
-                raw_measurements = pending_data["measurements"]
-                # Remove from pending
-                del self._pending_measurements[timestamp]
-                self._ambiguous_notifications.discard(timestamp)
-
-            if not raw_measurements:
-                # Extract from current data if not in pending
-                raw_measurements = {
-                    "weight": weight_kg,
-                }
-                if impedance is not None:
-                    raw_measurements["impedance"] = impedance
-
-            # Create ScaleData and route to user
-            # Pass the original timestamp to preserve measurement time
-            scale_data = ScaleData(measurements=raw_measurements)
-            self._route_to_user(
-                auto_assign_user_id, scale_data, timestamp=measurement_timestamp
+            _LOGGER.warning(
+                "Notification called with single candidate - coordinator should have auto-assigned. "
+                "This indicates a logic error in update_listeners()."
             )
+            # This code path should be unreachable, but handle gracefully if it occurs
+            return
 
-            # Dismiss mobile notifications if any were sent before we determined single candidate
-            # (This handles race condition where notifications were sent before filtering)
-            tag = f"scale_measurement_{timestamp}"
-            if timestamp in self._pending_measurements:
-                notified_services = self._pending_measurements[timestamp].get(
-                    "notified_mobile_services", []
-                )
-                for user_id_notified, service_name in notified_services:
-                    self._hass.async_create_task(
-                        self._hass.services.async_call(
-                            "notify",
-                            service_name,
-                            {"message": "clear_notification", "data": {"tag": tag}},
-                        )
-                    )
-                    _LOGGER.debug(
-                        "Dismissed mobile notification for user %s on %s (tag: %s) due to auto-assignment",
-                        user_id_notified,
-                        service_name,
-                        tag,
-                    )
+        # Assert we have multiple candidates (sanity check for development)
+        assert (
+            total_candidates > 1
+        ), f"Notification should only be created for multiple candidates, got {total_candidates}"
 
-            # Update diagnostic sensors to reflect removed pending measurement
-            self._notify_diagnostic_sensors()
-
+        # Continue with notification creation for multiple candidates
+        if total_candidates == 0:
+            # Edge case: shouldn't happen but log if it does
+            _LOGGER.error(
+                "Notification called with zero candidates - this should never occur"
+            )
             return
 
         # Build the user list for the notification message

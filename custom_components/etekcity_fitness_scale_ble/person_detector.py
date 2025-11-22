@@ -84,9 +84,7 @@ class PersonDetector:
 
         return filtered_candidates
 
-    def detect_person(
-        self, weight_kg: float, user_profiles: list[dict]
-    ) -> list[str]:
+    def detect_person(self, weight_kg: float, user_profiles: list[dict]) -> list[str]:
         """Detect which person is using the scale based on weight.
 
         Returns a list of candidate user IDs who could match this measurement.
