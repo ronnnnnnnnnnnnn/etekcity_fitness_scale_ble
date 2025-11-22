@@ -1786,6 +1786,82 @@ class ScaleDataUpdateCoordinator:
         """
         return self._user_profiles
 
+    def _build_measurement_data_from_history(
+        self, user_id: str, measurement: dict
+    ) -> ScaleData:
+        """Build a complete ScaleData with body metrics from a historical measurement.
+
+        Takes a measurement from history (which only has weight_kg and impedance_ohm)
+        and creates a full ScaleData object with recalculated body metrics based on
+        the user's current profile.
+
+        Args:
+            user_id: The user ID
+            measurement: Measurement dict from history with 'weight_kg' and optionally 'impedance_ohm'
+
+        Returns:
+            ScaleData object with weight, impedance, and recalculated body metrics
+        """
+        user_profile = self._user_profiles_by_id.get(user_id)
+        if not user_profile:
+            _LOGGER.error("User profile not found for user_id: %s", user_id)
+            return ScaleData(measurements={})
+
+        # Convert history format to measurement format
+        measurements = {"weight": measurement["weight_kg"]}
+        if "impedance_ohm" in measurement:
+            measurements["impedance"] = measurement["impedance_ohm"]
+
+        # Calculate body metrics if enabled for this user
+        if user_profile.get("body_metrics_enabled", False):
+            try:
+                from etekcity_esf551_ble.body_metrics import (
+                    BodyMetrics,
+                    Sex as ESFSex,
+                    _as_dictionary,
+                    _calc_age,
+                )
+                from datetime import date as dt_date
+
+                weight_kg = measurements.get("weight")
+                impedance = measurements.get("impedance")
+
+                if weight_kg:
+                    height_m = user_profile.get("height") / 100.0
+                    if impedance:
+                        birthdate_str = user_profile.get("birthdate")
+                        if isinstance(birthdate_str, str):
+                            birthdate = dt_date.fromisoformat(birthdate_str)
+                        else:
+                            birthdate = birthdate_str
+
+                        sex_str = user_profile.get("sex", "Male")
+                        sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
+                        age = _calc_age(birthdate)
+                        body_metrics = BodyMetrics(
+                            weight_kg, height_m, age, sex, impedance
+                        )
+                        metrics_dict = _as_dictionary(body_metrics)
+
+                        # Add body metrics to measurements
+                        measurements.update(metrics_dict)
+                        _LOGGER.debug(
+                            "Recalculated body metrics for user %s from history: %s",
+                            user_profile.get("name", user_id),
+                            list(metrics_dict.keys()),
+                        )
+                    else:
+                        # No impedance - calculate BMI only
+                        measurements["body_mass_index"] = (
+                            floor(weight_kg / (height_m**2) * 100) / 100
+                        )
+            except Exception as ex:
+                _LOGGER.error(
+                    "Error recalculating body metrics for user %s: %s", user_id, ex
+                )
+
+        return ScaleData(measurements=measurements)
+
     def get_pending_measurements(self) -> dict[str, dict]:
         """Get all pending measurements.
 
@@ -1998,32 +2074,12 @@ class ScaleDataUpdateCoordinator:
         # Body metrics will be recalculated by _route_to_user() based on target user's profile
         scale_data = ScaleData(measurements=measurements)
 
-        # Remove measurement from source user's history
-        from_profile = self._user_profiles_by_id.get(from_user_id)
-        if from_profile:
-            from_history = from_profile.get(CONF_WEIGHT_HISTORY, [])
-            if from_history:
-                from_history.pop()  # Remove last measurement
-                _LOGGER.debug(
-                    "Removed last measurement from user %s history",
-                    from_user_id,
-                )
+        # Remove measurement from source user (this updates source user's sensors)
+        self.remove_user_measurement(from_user_id)
 
-        # Route to target user (this will add to target's history)
+        # Route to target user (this will add to target's history and persist)
         # Pass the original timestamp to preserve measurement time
         self._route_to_user(to_user_id, scale_data, timestamp=measurement_timestamp)
-
-        # Signal source user's sensors to revert to previous using direct callback registry
-        revert_data = ScaleData(measurements={"_revert_": True})
-        for update_callback in self._user_callbacks.get(from_user_id, []):
-            try:
-                update_callback(revert_data)
-            except Exception as ex:
-                _LOGGER.error(
-                    "Error reverting sensor for user %s: %s", from_user_id, ex
-                )
-
-        # Persist changes to config entry
         self._update_config_entry()
 
         return True
@@ -2054,13 +2110,24 @@ class ScaleDataUpdateCoordinator:
             else:
                 _LOGGER.warning("No measurements in history for user %s", user_id)
 
-        # Signal user's sensors to revert using direct callback registry
-        revert_data = ScaleData(measurements={"_revert_": True})
+        # Update user's sensors with their new last measurement (after removal)
+        # This recalculates body metrics from the remaining measurement
+        last_measurement = self.get_last_measurement(user_id)
+        if last_measurement:
+            # User still has measurements - update sensors with recalculated body metrics
+            update_data = self._build_measurement_data_from_history(
+                user_id, last_measurement
+            )
+        else:
+            # User has no more measurements - send empty data
+            # Sensors will mark themselves unavailable when their key is missing
+            update_data = ScaleData(measurements={})
+
         for update_callback in self._user_callbacks.get(user_id, []):
             try:
-                update_callback(revert_data)
+                update_callback(update_data)
             except Exception as ex:
-                _LOGGER.error("Error reverting sensor for user %s: %s", user_id, ex)
+                _LOGGER.error("Error updating sensor for user %s: %s", user_id, ex)
 
         # Persist changes to config entry
         self._update_config_entry()

@@ -362,53 +362,7 @@ class ScaleSensor(RestoreSensor):
             data: The new scale data.
 
         """
-        # Handle revert signal
-        if data.measurements.get("_revert_"):
-            # Get previous measurement from coordinator's persistent history
-            prev_measurement = self._coordinator.get_previous_measurement(self._user_id)
-            if prev_measurement is not None:
-                # Get the sensor key value from previous measurement
-                sensor_key = self.entity_description.key
-                # Convert weight_kg to weight for the sensor key
-                if sensor_key == "weight":
-                    previous_value = prev_measurement.get("weight_kg")
-                elif sensor_key == "impedance":
-                    previous_value = prev_measurement.get("impedance_ohm")
-                else:
-                    # For body metrics, they're not stored in history
-                    previous_value = None
-
-                if previous_value is not None:
-                    # Revert to previous value
-                    _LOGGER.debug(
-                        "Reverting sensor %s to previous value: %s",
-                        self.entity_id,
-                        previous_value,
-                    )
-                    self._attr_native_value = previous_value
-                    self._attr_available = True
-                else:
-                    # Previous measurement exists but doesn't have this sensor's value
-                    _LOGGER.debug(
-                        "No previous value for sensor %s key %s, marking unavailable",
-                        self.entity_id,
-                        sensor_key,
-                    )
-                    self._attr_available = False
-                    self._attr_native_value = None
-            else:
-                # No previous measurement - mark unavailable
-                _LOGGER.debug(
-                    "No previous measurement for sensor %s, marking unavailable",
-                    self.entity_id,
-                )
-                self._attr_available = False
-                self._attr_native_value = None
-
-            self.async_write_ha_state()
-            return
-
-        # Normal update
+        # Update sensor with new data
         if measurement := data.measurements.get(self.entity_description.key):
             _LOGGER.debug(
                 "Received update for sensor %s: %s",
