@@ -22,6 +22,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
     CONF_BODY_METRICS_ENABLED,
@@ -513,10 +514,11 @@ class ScaleWeightSensor(ScaleSensor):
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
 
-        # Add weight history for this user
+        # Add weight history for this user (formatted for display)
         if self._user_id:
-            history = self._coordinator.get_user_history(self._user_id)
-            attrs["weight_history"] = history
+            attrs["weight_history"] = self._coordinator.get_user_history_for_display(
+                self._user_id
+            )
 
         return attrs
 
@@ -694,10 +696,11 @@ class ScaleUserWeightSensor(ScaleUserSensor):
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
 
-        # Add weight history for this user
+        # Add weight history for this user (formatted for display)
         if self._user_id:
-            history = self._coordinator.get_user_history(self._user_id)
-            attrs["weight_history"] = history
+            attrs["weight_history"] = self._coordinator.get_user_history_for_display(
+                self._user_id
+            )
 
         return attrs
 
@@ -842,24 +845,41 @@ class ScalePendingMeasurementsSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return pending measurements as attributes."""
+        """Return pending measurements as attributes (formatted for display)."""
+        from homeassistant.util.unit_conversion import MassConverter
+        from homeassistant.const import UnitOfMass
+
+        display_unit = self._coordinator.get_display_unit()
+        is_pounds = display_unit == WeightUnit.LB
+
         pending_data = []
         for (
             timestamp,
             pending_dict,
         ) in self._coordinator.get_pending_measurements().items():
             raw_measurements = pending_dict["measurements"]
-            measurement = {
-                "timestamp": timestamp,
-                "weight_kg": raw_measurements.get("weight"),
-            }
-            # Add impedance if available
+            measurement = {}
+            # Timestamp with friendly key
+            measurement["Timestamp"] = timestamp
+
+            # Weight with friendly key and unit conversion if needed
+            weight_kg = raw_measurements.get("weight")
+            if weight_kg is not None:
+                if is_pounds:
+                    weight_lb = MassConverter.convert(
+                        weight_kg, UnitOfMass.KILOGRAMS, UnitOfMass.POUNDS
+                    )
+                    measurement["Weight (lbs)"] = round(weight_lb, 2)
+                else:
+                    measurement["Weight (kg)"] = round(weight_kg, 2)
+
+            # Impedance with friendly key
             if "impedance" in raw_measurements:
-                measurement["impedance"] = raw_measurements["impedance"]
+                measurement["Impedance (Ω)"] = raw_measurements["impedance"]
 
             pending_data.append(measurement)
 
         # Sort by timestamp (most recent first)
-        pending_data.sort(key=lambda x: x["timestamp"], reverse=True)
+        pending_data.sort(key=lambda x: x["Timestamp"], reverse=True)
 
         return {"pending": pending_data}
