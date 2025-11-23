@@ -24,21 +24,6 @@
                     "height": "Height",
                     "birthdate": "Date of Birth"
                 }
-            },
-            "reconfigure": {
-                "description": "Configure device options",
-                "data": {
-                    "unit_system": "Unit System",
-                    "calculate body metrics": "Calculate body composition metrics"
-                }
-            },
-            "reconfigure_body_metrics": {
-                "description": "Fill in your sex, date of birth and height",
-                "data": {
-                    "sex": "Sex",
-                    "height": "Height",
-                    "birthdate": "Date of Birth"
-                }
             }
         },
         "error": {
@@ -51,7 +36,6 @@
             "no_devices_found": "No devices found on the network",
             "already_in_progress": "Configuration flow is already in progress",
             "already_configured": "Device is already configured",
-            "reconfigure_successful": "Re-configuration was successful",
             "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function.",
             "user_id_generation_failed": "Failed to generate unique user ID. This is extremely rare. Please try again.",
             "invalid_user_name": "Invalid user name provided. Please try again."
