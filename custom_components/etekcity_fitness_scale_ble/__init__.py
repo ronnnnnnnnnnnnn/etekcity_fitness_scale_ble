@@ -261,19 +261,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coord = _get_coordinator_for_device(device_id)
 
         # Validate user exists on this scale
+        # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
         valid_user_ids = [
             p.get(CONF_USER_ID)
             for p in coord.get_user_profiles()
-            if p.get(CONF_USER_ID)
+            if p.get(CONF_USER_ID) is not None
         ]
         if user_id not in valid_user_ids:
             # Provide helpful error with available users
-            user_names = [
-                f"{p.get(CONF_USER_NAME, 'Unknown')} ({p.get(CONF_USER_ID)})"
-                for p in coord.get_user_profiles()
-                if p.get(CONF_USER_ID)
-            ]
-            available_users = ", ".join(user_names) if user_names else "none"
+            # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
+            user_list_items = []
+            for p in coord.get_user_profiles():
+                profile_user_id = p.get(CONF_USER_ID)
+                if profile_user_id is not None:
+                    user_name = p.get(CONF_USER_NAME, "Unknown")
+                    # Format user_id for display (empty string shows as "(legacy)" for clarity)
+                    if profile_user_id == "":
+                        user_list_items.append(f"{user_name} (use empty string \"\" as user_id)")
+                    else:
+                        user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
+            available_users = ", ".join(user_list_items) if user_list_items else "none"
             raise HomeAssistantError(
                 f"User '{user_id}' not found for this scale. "
                 f"Please check the user ID and try again. "
@@ -317,19 +324,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coord = _get_coordinator_for_device(device_id)
 
         # Validate both users exist on this scale
+        # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
         valid_user_ids = [
             p.get(CONF_USER_ID)
             for p in coord.get_user_profiles()
-            if p.get(CONF_USER_ID)
+            if p.get(CONF_USER_ID) is not None
         ]
         for uid in (from_user_id, to_user_id):
             if uid not in valid_user_ids:
-                user_names = [
-                    f"{p.get(CONF_USER_NAME, 'Unknown')} ({p.get(CONF_USER_ID)})"
-                    for p in coord.get_user_profiles()
-                    if p.get(CONF_USER_ID)
-                ]
-                available_users = ", ".join(user_names) if user_names else "none"
+                # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
+                user_list_items = []
+                for p in coord.get_user_profiles():
+                    profile_user_id = p.get(CONF_USER_ID)
+                    if profile_user_id is not None:
+                        user_name = p.get(CONF_USER_NAME, "Unknown")
+                        # Format user_id for display (empty string shows as "(legacy)" for clarity)
+                        if profile_user_id == "":
+                            user_list_items.append(f"{user_name} (use empty string \"\" as user_id)")
+                        else:
+                            user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
+                available_users = ", ".join(user_list_items) if user_list_items else "none"
                 raise HomeAssistantError(
                     f"User '{uid}' not found for this scale. "
                     f"Please check the user ID and try again. "
@@ -359,18 +373,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coord = _get_coordinator_for_device(device_id)
 
         # Validate user exists on this scale
+        # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
         valid_user_ids = [
             p.get(CONF_USER_ID)
             for p in coord.get_user_profiles()
-            if p.get(CONF_USER_ID)
+            if p.get(CONF_USER_ID) is not None
         ]
         if user_id not in valid_user_ids:
-            user_names = [
-                f"{p.get(CONF_USER_NAME, 'Unknown')} ({p.get(CONF_USER_ID)})"
-                for p in coord.get_user_profiles()
-                if p.get(CONF_USER_ID)
-            ]
-            available_users = ", ".join(user_names) if user_names else "none"
+            # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
+            user_list_items = []
+            for p in coord.get_user_profiles():
+                profile_user_id = p.get(CONF_USER_ID)
+                if profile_user_id is not None:
+                    user_name = p.get(CONF_USER_NAME, "Unknown")
+                    # Format user_id for display (empty string shows as "(legacy)" for clarity)
+                    if profile_user_id == "":
+                        user_list_items.append(f"{user_name} (use empty string \"\" as user_id)")
+                    else:
+                        user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
+            available_users = ", ".join(user_list_items) if user_list_items else "none"
             raise HomeAssistantError(
                 f"User '{user_id}' not found for this scale. "
                 f"Please check the user ID and try again. "
@@ -432,7 +453,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         def _decode_action_payload(
             action_value: str, prefix: str
         ) -> tuple[str, str] | None:
-            """Extract user_id and timestamp tokens from an action string."""
+            """Extract user_id and timestamp tokens from an action string.
+            
+            Handles v1 legacy user_id (empty string) by using __legacy__ placeholder.
+            """
             if not action_value.startswith(prefix):
                 return None
 
@@ -444,7 +468,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not user_token or not timestamp_token:
                 return None
 
-            return unquote(user_token), unquote(timestamp_token)
+            # Decode user_id, handling v1 legacy placeholder
+            LEGACY_USER_ID_PLACEHOLDER = "__legacy__"
+            decoded_user_id = unquote(user_token)
+            if decoded_user_id == LEGACY_USER_ID_PLACEHOLDER:
+                decoded_user_id = ""  # Map placeholder back to empty string (v1 legacy)
+
+            return decoded_user_id, unquote(timestamp_token)
 
         try:
             if action.startswith("SCALE_ASSIGN_"):
@@ -469,10 +499,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     if timestamp in coord.get_pending_measurements():
                         # Validate user exists in this coordinator
+                        # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
                         valid_user_ids = [
                             p.get(CONF_USER_ID)
                             for p in coord.get_user_profiles()
-                            if p.get(CONF_USER_ID)
+                            if p.get(CONF_USER_ID) is not None
                         ]
 
                         if user_id not in valid_user_ids:

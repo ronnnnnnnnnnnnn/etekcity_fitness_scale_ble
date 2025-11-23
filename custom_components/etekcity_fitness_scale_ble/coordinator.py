@@ -1863,6 +1863,8 @@ class ScaleDataUpdateCoordinator:
 
         # Encode timestamp for safe embedding in action identifiers
         encoded_timestamp = quote(timestamp, safe="")
+        # Use placeholder for empty string user_id (v1 legacy) to avoid encoding issues
+        LEGACY_USER_ID_PLACEHOLDER = "__legacy__"
 
         # Send one notification per device with appropriate message and actions
         for service_name, users in device_to_users.items():
@@ -1872,7 +1874,10 @@ class ScaleDataUpdateCoordinator:
                     # Personalized notification for single user
                     user_id, user_name = users[0]
                     message = f"{weight_display} at {time_display}. Is this yours?"
-                    encoded_user_id = quote(user_id, safe="")
+                    # Use placeholder for empty string user_id (v1 legacy compatibility)
+                    encoded_user_id = (
+                        LEGACY_USER_ID_PLACEHOLDER if user_id == "" else quote(user_id, safe="")
+                    )
 
                     actions = [
                         {
@@ -1903,7 +1908,10 @@ class ScaleDataUpdateCoordinator:
                     # Build action buttons (limit to first 3 users due to platform constraints)
                     actions = []
                     for user_id, user_name in users[:3]:
-                        encoded_user_id = quote(user_id, safe="")
+                        # Use placeholder for empty string user_id (v1 legacy compatibility)
+                        encoded_user_id = (
+                            LEGACY_USER_ID_PLACEHOLDER if user_id == "" else quote(user_id, safe="")
+                        )
                         actions.append(
                             {
                                 "action": f"SCALE_ASSIGN_{encoded_user_id}_{encoded_timestamp}",
@@ -2078,8 +2086,10 @@ class ScaleDataUpdateCoordinator:
         if matching_users:
             user_list_items.append("**Candidates:**")
             for user_id, diff, user_name in matching_users:
+                # Format user_id for display (empty string shows as "(legacy)" for clarity)
+                user_id_display = '"" (legacy)' if user_id == "" else f"`{user_id}`"
                 user_list_items.append(
-                    f"- **{user_name}** (`{user_id}`) — ±{_format_weight(diff, 1)}"
+                    f"- **{user_name}** ({user_id_display}) — ±{_format_weight(diff, 1)}"
                 )
 
         if other_users:
@@ -2087,7 +2097,9 @@ class ScaleDataUpdateCoordinator:
                 user_list_items.append("**Candidates:**")
 
             for user_id, user_name in other_users:
-                user_list_items.append(f"- **{user_name}** (`{user_id}`)")
+                # Format user_id for display (empty string shows as "(legacy)" for clarity)
+                user_id_display = '"" (legacy)' if user_id == "" else f"`{user_id}`"
+                user_list_items.append(f"- **{user_name}** ({user_id_display})")
 
         user_list_str = "\n".join(user_list_items)
 
