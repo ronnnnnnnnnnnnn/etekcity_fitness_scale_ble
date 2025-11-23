@@ -273,26 +273,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for p in coord.get_user_profiles()
                 if p.get(CONF_USER_ID)
             ]
+            available_users = ", ".join(user_names) if user_names else "none"
             raise HomeAssistantError(
-                f"User {user_id} not found for selected scale. "
-                f"Available users: {', '.join(user_names) if user_names else 'none'}"
+                f"User '{user_id}' not found for this scale. "
+                f"Please check the user ID and try again. "
+                f"Available users: {available_users}"
             )
 
         # Validate timestamp exists in pending measurements
         pending_measurements = coord.get_pending_measurements()
         if timestamp not in pending_measurements:
             available_timestamps = sorted(pending_measurements.keys(), reverse=True)[:5]
-            timestamp_list = ", ".join(f"'{ts}'" for ts in available_timestamps)
-            raise HomeAssistantError(
-                f"Timestamp {timestamp} not found in pending measurements for this scale. "
-                f"{f'Available timestamps: {timestamp_list}' if available_timestamps else 'No pending measurements available.'}"
-            )
+            if available_timestamps:
+                timestamp_list = ", ".join(f"'{ts}'" for ts in available_timestamps)
+                raise HomeAssistantError(
+                    f"Measurement timestamp '{timestamp}' not found. "
+                    f"Please check the timestamp and try again. "
+                    f"Available timestamps: {timestamp_list}"
+                )
+            else:
+                raise HomeAssistantError(
+                    f"Measurement timestamp '{timestamp}' not found. "
+                    f"No pending measurements are available for this scale."
+                )
 
         # Assign the pending measurement
         if not coord.assign_pending_measurement(timestamp, user_id):
             raise HomeAssistantError(
-                f"Failed assigning timestamp {timestamp} to user {user_id}. "
-                "Check pending measurements for this scale."
+                f"Failed to assign measurement to user '{user_id}'. "
+                f"Please check that the timestamp '{timestamp}' exists in pending measurements."
             )
 
     async def handle_reassign_measurement(call: ServiceCall) -> None:
@@ -320,15 +329,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     for p in coord.get_user_profiles()
                     if p.get(CONF_USER_ID)
                 ]
+                available_users = ", ".join(user_names) if user_names else "none"
                 raise HomeAssistantError(
-                    f"User {uid} not found for selected scale. "
-                    f"Available users: {', '.join(user_names) if user_names else 'none'}"
+                    f"User '{uid}' not found for this scale. "
+                    f"Please check the user ID and try again. "
+                    f"Available users: {available_users}"
                 )
 
         if not coord.reassign_user_measurement(from_user_id, to_user_id, timestamp):
-            raise HomeAssistantError(
-                "Failed to reassign measurement. Ensure source user has the specified measurement."
-            )
+            if timestamp:
+                raise HomeAssistantError(
+                    f"Failed to reassign measurement. "
+                    f"Please ensure user '{from_user_id}' has a measurement with timestamp '{timestamp}'."
+                )
+            else:
+                raise HomeAssistantError(
+                    f"Failed to reassign measurement. "
+                    f"Please ensure user '{from_user_id}' has at least one measurement to reassign."
+                )
 
     async def handle_remove_measurement(call: ServiceCall) -> None:
         """Handle the remove_measurement service call."""
@@ -352,15 +370,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for p in coord.get_user_profiles()
                 if p.get(CONF_USER_ID)
             ]
+            available_users = ", ".join(user_names) if user_names else "none"
             raise HomeAssistantError(
-                f"User {user_id} not found for selected scale. "
-                f"Available users: {', '.join(user_names) if user_names else 'none'}"
+                f"User '{user_id}' not found for this scale. "
+                f"Please check the user ID and try again. "
+                f"Available users: {available_users}"
             )
 
         if not coord.remove_user_measurement(user_id, timestamp):
-            raise HomeAssistantError(
-                "Failed to remove measurement. Ensure the user has the specified measurement."
-            )
+            if timestamp:
+                raise HomeAssistantError(
+                    f"Failed to remove measurement. "
+                    f"Please ensure user '{user_id}' has a measurement with timestamp '{timestamp}'."
+                )
+            else:
+                raise HomeAssistantError(
+                    f"Failed to remove measurement. "
+                    f"Please ensure user '{user_id}' has at least one measurement to remove."
+                )
 
     # Register the services on first setup
     if not hass.services.has_service(DOMAIN, SERVICE_ASSIGN_MEASUREMENT):

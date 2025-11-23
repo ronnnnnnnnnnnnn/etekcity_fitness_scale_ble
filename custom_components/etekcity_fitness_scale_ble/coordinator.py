@@ -863,7 +863,6 @@ class ScaleDataUpdateCoordinator:
             len(history),
         )
 
-        # Log full history at INFO level for debugging (temporary)
         self._log_user_history(user_id, "after adding measurement")
 
     def _cleanup_history(self, user_profile: dict) -> None:
@@ -907,9 +906,9 @@ class ScaleDataUpdateCoordinator:
             history[:] = history[-MAX_HISTORY_SIZE:]
 
     def _log_user_history(self, user_id: str, context: str) -> None:
-        """Log user's full weight history at INFO level for debugging.
+        """Log user's full weight history at DEBUG level for debugging.
 
-        This is a temporary debugging measure to track history changes.
+        Only logs when debug logging is enabled to avoid cluttering logs.
 
         Args:
             user_id: User ID to log history for.
@@ -917,7 +916,7 @@ class ScaleDataUpdateCoordinator:
         """
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "📊 Weight history for user %s (%s): USER NOT FOUND",
                 user_id,
                 context,
@@ -929,7 +928,7 @@ class ScaleDataUpdateCoordinator:
         history = self.get_user_history(user_id)
 
         if not history:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "📊 Weight history for user %s (%s): EMPTY (0 measurements)",
                 user_name,
                 context,
@@ -943,7 +942,7 @@ class ScaleDataUpdateCoordinator:
             for i, m in enumerate(history)
         )
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "📊 Weight history for user %s (%s): %d measurement(s)\n%s",
             user_name,
             context,
@@ -2335,8 +2334,7 @@ class ScaleDataUpdateCoordinator:
         # Persist changes once after both operations complete
         self._update_config_entry()
 
-        # Log both histories at INFO level for debugging (temporary)
-        _LOGGER.info("=== REASSIGN COMPLETE ===")
+        _LOGGER.debug("=== REASSIGN COMPLETE ===")
         self._log_user_history(from_user_id, "source user (after removal)")
         self._log_user_history(to_user_id, "target user (after adding)")
 
@@ -2399,7 +2397,6 @@ class ScaleDataUpdateCoordinator:
             removed.get("weight_kg"),
             removed.get("timestamp"),
         )
-        # Log full history at INFO level for debugging (temporary)
         self._log_user_history(user_id, "after removing measurement")
 
         # Update user's sensors with their new last measurement (after removal)
