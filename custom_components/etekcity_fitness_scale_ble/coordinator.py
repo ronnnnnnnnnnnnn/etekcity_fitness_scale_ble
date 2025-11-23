@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from bisect import bisect_left
 from copy import deepcopy
 from datetime import datetime, timedelta
 import logging
@@ -37,7 +38,7 @@ from etekcity_esf551_ble import (
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
-from homeassistant.helpers import device_registry as dr  # NEW import
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.const import UnitOfMass
 from homeassistant.util.unit_conversion import MassConverter
@@ -829,9 +830,27 @@ class ScaleDataUpdateCoordinator:
         if impedance_ohm is not None:
             measurement["impedance_ohm"] = impedance_ohm
 
-        # Add and sort
-        history.append(measurement)
-        history.sort(key=lambda m: m["timestamp"])
+        # Insert in sorted order using bisect for efficient insertion
+        # Find insertion point by comparing timestamps (works on sorted lists)
+        if history:
+            # Extract timestamps for bisect (assumes history is already sorted)
+            timestamps = [m["timestamp"] for m in history]
+            insert_pos = bisect_left(timestamps, timestamp)
+            history.insert(insert_pos, measurement)
+        else:
+            # Empty history, just append
+            history.append(measurement)
+        
+        # Ensure list remains sorted (defensive check in case history wasn't sorted initially)
+        # This is O(n log n) but only runs if needed, and history is small (max 100 items)
+        if len(history) > 1:
+            # Check if actually sorted
+            is_sorted = all(
+                history[i]["timestamp"] <= history[i + 1]["timestamp"]
+                for i in range(len(history) - 1)
+            )
+            if not is_sorted:
+                history.sort(key=lambda m: m["timestamp"])
 
         # Cleanup old and excess measurements
         self._cleanup_history(user_profile)
@@ -861,10 +880,27 @@ class ScaleDataUpdateCoordinator:
             return
 
         # Remove measurements older than retention window
+        # Handle invalid timestamps gracefully to prevent crashes from corrupted data
         cutoff_time = datetime.now() - timedelta(days=HISTORY_RETENTION_DAYS)
-        history[:] = [
-            m for m in history if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
-        ]
+        valid_measurements = []
+        for m in history:
+            timestamp_str = m.get("timestamp")
+            if not timestamp_str:
+                _LOGGER.warning("Measurement missing timestamp, removing: %s", m)
+                continue
+            try:
+                parsed_timestamp = datetime.fromisoformat(timestamp_str)
+                if parsed_timestamp >= cutoff_time:
+                    valid_measurements.append(m)
+            except (ValueError, TypeError) as ex:
+                _LOGGER.warning(
+                    "Invalid timestamp format '%s' in measurement, removing: %s",
+                    timestamp_str,
+                    ex,
+                )
+                continue
+
+        history[:] = valid_measurements
 
         # Enforce max size (keep newest)
         if len(history) > MAX_HISTORY_SIZE:
@@ -1311,18 +1347,31 @@ class ScaleDataUpdateCoordinator:
             notified_services = pending_data.get("notified_mobile_services", [])
             for user_id, service_name in notified_services:
                 tag = f"scale_measurement_{oldest_timestamp}"
+
+                async def _safe_clear_notification(service: str, notification_tag: str) -> None:
+                    """Safely clear notification with error handling."""
+                    try:
+                        await self._hass.services.async_call(
+                            "notify",
+                            service,
+                            {"message": "clear_notification", "data": {"tag": notification_tag}},
+                        )
+                        _LOGGER.debug(
+                            "Dismissed mobile notification for user %s on %s (tag: %s)",
+                            user_id,
+                            service,
+                            notification_tag,
+                        )
+                    except Exception as ex:
+                        _LOGGER.error(
+                            "Failed to clear notification on %s (tag: %s): %s",
+                            service,
+                            notification_tag,
+                            ex,
+                        )
+
                 self._hass.async_create_task(
-                    self._hass.services.async_call(
-                        "notify",
-                        service_name,
-                        {"message": "clear_notification", "data": {"tag": tag}},
-                    )
-                )
-                _LOGGER.debug(
-                    "Dismissed mobile notification for user %s on %s (tag: %s)",
-                    user_id,
-                    service_name,
-                    tag,
+                    _safe_clear_notification(service_name, tag)
                 )
 
             del self._pending_measurements[oldest_timestamp]
@@ -1454,11 +1503,20 @@ class ScaleDataUpdateCoordinator:
             self._cleanup_old_pending_measurements()
 
             # Schedule async notification (runs in background)
-            self._hass.async_create_task(
-                self._create_ambiguous_notification(
-                    weight_kg, impedance, candidates, timestamp
-                )
-            )
+            async def _safe_create_notification() -> None:
+                """Safely create ambiguous notification with error handling."""
+                try:
+                    await self._create_ambiguous_notification(
+                        weight_kg, impedance, candidates, timestamp
+                    )
+                except Exception as ex:
+                    _LOGGER.error(
+                        "Failed to create ambiguous notification for measurement %s: %s",
+                        timestamp,
+                        ex,
+                    )
+
+            self._hass.async_create_task(_safe_create_notification())
 
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
@@ -1520,7 +1578,7 @@ class ScaleDataUpdateCoordinator:
             try:
                 from etekcity_esf551_ble.body_metrics import (
                     BodyMetrics,
-                    Sex as ESFSex,
+                    Sex,
                     _as_dictionary,
                     _calc_age,
                 )
@@ -1530,7 +1588,20 @@ class ScaleDataUpdateCoordinator:
                 impedance = data.measurements.get("impedance")
 
                 if weight_kg:
-                    height_m = user_profile.get("height") / 100.0
+                    height_cm = user_profile.get("height")
+                    user_name = user_profile.get("name", user_id)
+
+                    if height_cm <= 0:
+                        _LOGGER.error(
+                            "Invalid height for user %s: %s (must be positive number in cm)",
+                            user_id,
+                            height_cm,
+                        )
+                        # Skip body metrics calculation if height is invalid
+                        return
+
+                    height_m = height_cm / 100.0
+
                     if impedance:
                         birthdate_str = user_profile.get("birthdate")
                         if isinstance(birthdate_str, str):
@@ -1539,7 +1610,7 @@ class ScaleDataUpdateCoordinator:
                             birthdate = birthdate_str
 
                         sex_str = user_profile.get("sex", "Male")
-                        sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
+                        sex = Sex.Male if sex_str == "Male" else Sex.Female
                         age = _calc_age(birthdate)
                         body_metrics = BodyMetrics(
                             weight_kg, height_m, age, sex, impedance
@@ -1550,7 +1621,7 @@ class ScaleDataUpdateCoordinator:
                         data.measurements.update(metrics_dict)
                         _LOGGER.debug(
                             "Added body metrics for user %s: %s",
-                            user_profile.get("name", user_id),
+                            user_name,
                             list(metrics_dict.keys()),
                         )
                     else:
@@ -1562,9 +1633,15 @@ class ScaleDataUpdateCoordinator:
                         data.measurements["body_mass_index"] = (
                             floor(weight_kg / (height_m**2) * 100) / 100
                         )
-            except Exception as ex:
+            except (ValueError, TypeError, AttributeError) as ex:
+                # Catch expected errors from invalid data
                 _LOGGER.error(
                     "Error calculating body metrics for user %s: %s", user_id, ex
+                )
+            except Exception as ex:
+                # Catch unexpected errors and log with full traceback
+                _LOGGER.exception(
+                    "Unexpected error calculating body metrics for user %s", user_id
                 )
 
         # Route to user-specific listeners using direct callback registry
@@ -1973,7 +2050,7 @@ class ScaleDataUpdateCoordinator:
             try:
                 from etekcity_esf551_ble.body_metrics import (
                     BodyMetrics,
-                    Sex as ESFSex,
+                    Sex,
                     _as_dictionary,
                     _calc_age,
                 )
@@ -1983,7 +2060,20 @@ class ScaleDataUpdateCoordinator:
                 impedance = measurements.get("impedance")
 
                 if weight_kg:
-                    height_m = user_profile.get("height") / 100.0
+                    height_cm = user_profile.get("height")
+                    user_name = user_profile.get("name", user_id)
+
+                    if height_cm <= 0:
+                        _LOGGER.error(
+                            "Invalid height for user %s: %s (must be positive number in cm), skipping body metrics",
+                            user_id,
+                            height_cm,
+                        )
+                        # Return ScaleData without body metrics
+                        return ScaleData(measurements=measurements)
+
+                    height_m = height_cm / 100.0
+
                     if impedance:
                         birthdate_str = user_profile.get("birthdate")
                         if isinstance(birthdate_str, str):
@@ -1992,7 +2082,7 @@ class ScaleDataUpdateCoordinator:
                             birthdate = birthdate_str
 
                         sex_str = user_profile.get("sex", "Male")
-                        sex = ESFSex.Male if sex_str == "Male" else ESFSex.Female
+                        sex = Sex.Male if sex_str == "Male" else Sex.Female
                         age = _calc_age(birthdate)
                         body_metrics = BodyMetrics(
                             weight_kg, height_m, age, sex, impedance
@@ -2003,7 +2093,7 @@ class ScaleDataUpdateCoordinator:
                         measurements.update(metrics_dict)
                         _LOGGER.debug(
                             "Recalculated body metrics for user %s from history: %s",
-                            user_profile.get("name", user_id),
+                            user_name,
                             list(metrics_dict.keys()),
                         )
                     else:
@@ -2011,9 +2101,15 @@ class ScaleDataUpdateCoordinator:
                         measurements["body_mass_index"] = (
                             floor(weight_kg / (height_m**2) * 100) / 100
                         )
-            except Exception as ex:
+            except (ValueError, TypeError, AttributeError) as ex:
+                # Catch expected errors from invalid data
                 _LOGGER.error(
                     "Error recalculating body metrics for user %s: %s", user_id, ex
+                )
+            except Exception as ex:
+                # Catch unexpected errors and log with full traceback
+                _LOGGER.exception(
+                    "Unexpected error recalculating body metrics for user %s", user_id
                 )
 
         return ScaleData(measurements=measurements)
