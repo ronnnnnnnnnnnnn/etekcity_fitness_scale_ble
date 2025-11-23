@@ -811,7 +811,7 @@ class ScaleDataUpdateCoordinator:
         """
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("Cannot add measurement: user %s not found", user_id)
+            _LOGGER.error("User profile not found for user_id: %s (cannot add measurement)", user_id)
             return
 
         history = user_profile.setdefault(CONF_WEIGHT_HISTORY, [])
@@ -957,13 +957,14 @@ class ScaleDataUpdateCoordinator:
         Persists all in-memory changes to config entry storage.
         """
         if not self._config_entry_id:
-            _LOGGER.warning("Cannot update config entry: ID not set")
+            _LOGGER.warning("Cannot update config entry: config entry ID not set")
             return
 
         entry = self._hass.config_entries.async_get_entry(self._config_entry_id)
         if not entry:
             _LOGGER.error(
-                "Cannot update config entry: entry %s not found", self._config_entry_id
+                "Config entry not found: entry_id=%s (cannot update user profiles)",
+                self._config_entry_id,
             )
             return
 
@@ -1116,7 +1117,11 @@ class ScaleDataUpdateCoordinator:
                     self._client = None
                 raise
             except BleakError as err:
-                _LOGGER.error("Failed to connect to scale at %s: %s", self.address, err)
+                _LOGGER.error(
+                    "Failed to connect to scale (address: %s, error: %s)",
+                    self.address,
+                    err,
+                )
                 if self._client:
                     try:
                         await self._client.async_stop()
@@ -1182,7 +1187,11 @@ class ScaleDataUpdateCoordinator:
                 await self._async_start()
                 _LOGGER.debug("ScaleDataUpdateCoordinator started successfully")
             except Exception as ex:
-                _LOGGER.error("Failed to start ScaleDataUpdateCoordinator: %s", ex)
+                _LOGGER.error(
+                    "Failed to start ScaleDataUpdateCoordinator (%s: %s)",
+                    type(ex).__name__,
+                    ex,
+                )
                 # Clean up resources on failure
                 if self._scanner_change_cb_unregister:
                     self._scanner_change_cb_unregister()
@@ -1328,11 +1337,19 @@ class ScaleDataUpdateCoordinator:
         """
         # Type validation only - scale hardware determines valid ranges
         if weight_kg is not None and not isinstance(weight_kg, (int, float)):
-            _LOGGER.warning("Invalid weight type: %s", type(weight_kg))
+            _LOGGER.warning(
+                "Invalid weight type: expected int or float, got %s (value: %s)",
+                type(weight_kg).__name__,
+                weight_kg,
+            )
             return False
 
         if impedance is not None and not isinstance(impedance, (int, float)):
-            _LOGGER.warning("Invalid impedance type: %s", type(impedance))
+            _LOGGER.warning(
+                "Invalid impedance type: expected int or float, got %s (value: %s)",
+                type(impedance).__name__,
+                impedance,
+            )
             return False
 
         return True
@@ -1364,7 +1381,7 @@ class ScaleDataUpdateCoordinator:
                         )
                     except Exception as ex:
                         _LOGGER.error(
-                            "Failed to clear notification on %s (tag: %s): %s",
+                            "Failed to clear notification (service: %s, tag: %s, error: %s)",
                             service,
                             notification_tag,
                             ex,
@@ -1415,7 +1432,7 @@ class ScaleDataUpdateCoordinator:
             data: The scale data to send to listeners.
         """
         if not data:
-            _LOGGER.warning("Received empty data update from scale %s", self.address)
+            _LOGGER.warning("Received empty data update from scale (address: %s)", self.address)
             return
 
         # Log received measurements
@@ -1430,14 +1447,17 @@ class ScaleDataUpdateCoordinator:
         # Extract weight for person detection
         weight_kg = data.measurements.get("weight")
         if weight_kg is None:
-            _LOGGER.warning("No weight measurement in scale data, cannot route to user")
+            _LOGGER.warning(
+                "No weight measurement in scale data (address: %s), cannot route to user",
+                self.address,
+            )
             return
 
         # Validate measurement ranges
         impedance = data.measurements.get("impedance")
         if not self._validate_measurement(weight_kg, impedance):
             _LOGGER.error(
-                "Invalid measurement values, rejecting data (weight: %s, impedance: %s)",
+                "Invalid measurement values, rejecting data (weight: %s kg, impedance: %s Ω)",
                 weight_kg,
                 impedance,
             )
@@ -1511,7 +1531,7 @@ class ScaleDataUpdateCoordinator:
                     )
                 except Exception as ex:
                     _LOGGER.error(
-                        "Failed to create ambiguous notification for measurement %s: %s",
+                        "Failed to create ambiguous notification (timestamp: %s, error: %s)",
                         timestamp,
                         ex,
                     )
@@ -1534,7 +1554,7 @@ class ScaleDataUpdateCoordinator:
         # Find user profile using O(1) dictionary lookup
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("User profile not found for user_id: %s", user_id)
+            _LOGGER.error("User profile not found for user_id: %s (cannot route measurement)", user_id)
             return
 
         # Store measurement in user's weight history
@@ -1569,7 +1589,10 @@ class ScaleDataUpdateCoordinator:
                     update_callback(data)
                 except Exception as ex:
                     _LOGGER.error(
-                        "Error updating listener for user %s: %s", user_id, ex
+                        "Error updating listener for user_id: %s (%s: %s)",
+                        user_id,
+                        type(ex).__name__,
+                        ex,
                     )
             return
 
@@ -1593,7 +1616,7 @@ class ScaleDataUpdateCoordinator:
 
                     if height_cm <= 0:
                         _LOGGER.error(
-                            "Invalid height for user %s: %s (must be positive number in cm)",
+                            "Invalid height for user_id: %s (height: %s cm, must be positive number)",
                             user_id,
                             height_cm,
                         )
@@ -1636,12 +1659,15 @@ class ScaleDataUpdateCoordinator:
             except (ValueError, TypeError, AttributeError) as ex:
                 # Catch expected errors from invalid data
                 _LOGGER.error(
-                    "Error calculating body metrics for user %s: %s", user_id, ex
+                    "Error calculating body metrics for user_id: %s (%s: %s)",
+                    user_id,
+                    type(ex).__name__,
+                    ex,
                 )
             except Exception as ex:
                 # Catch unexpected errors and log with full traceback
                 _LOGGER.exception(
-                    "Unexpected error calculating body metrics for user %s", user_id
+                    "Unexpected error calculating body metrics for user_id: %s", user_id
                 )
 
         # Route to user-specific listeners using direct callback registry
@@ -1649,7 +1675,12 @@ class ScaleDataUpdateCoordinator:
             try:
                 update_callback(data)
             except Exception as ex:
-                _LOGGER.error("Error updating listener for user %s: %s", user_id, ex)
+                _LOGGER.error(
+                    "Error updating listener for user_id: %s (%s: %s)",
+                    user_id,
+                    type(ex).__name__,
+                    ex,
+                )
 
     def _route_to_user(self, user_id: str, data: ScaleData, timestamp: str) -> None:
         """Route measurement to a specific user's sensors.
@@ -2037,7 +2068,7 @@ class ScaleDataUpdateCoordinator:
         """
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("User profile not found for user_id: %s", user_id)
+            _LOGGER.error("User profile not found for user_id: %s (cannot build measurement data)", user_id)
             return ScaleData(measurements={})
 
         # Convert history format to measurement format
@@ -2065,7 +2096,7 @@ class ScaleDataUpdateCoordinator:
 
                     if height_cm <= 0:
                         _LOGGER.error(
-                            "Invalid height for user %s: %s (must be positive number in cm), skipping body metrics",
+                            "Invalid height for user_id: %s (height: %s cm, must be positive number), skipping body metrics",
                             user_id,
                             height_cm,
                         )
@@ -2104,12 +2135,15 @@ class ScaleDataUpdateCoordinator:
             except (ValueError, TypeError, AttributeError) as ex:
                 # Catch expected errors from invalid data
                 _LOGGER.error(
-                    "Error recalculating body metrics for user %s: %s", user_id, ex
+                    "Error recalculating body metrics for user_id: %s (%s: %s)",
+                    user_id,
+                    type(ex).__name__,
+                    ex,
                 )
             except Exception as ex:
                 # Catch unexpected errors and log with full traceback
                 _LOGGER.exception(
-                    "Unexpected error recalculating body metrics for user %s", user_id
+                    "Unexpected error recalculating body metrics for user_id: %s", user_id
                 )
 
         return ScaleData(measurements=measurements)
@@ -2140,11 +2174,15 @@ class ScaleDataUpdateCoordinator:
         """
         # Validate user_id exists
         if user_id not in self._user_profiles_by_id:
-            _LOGGER.error("User %s not found in user profiles", user_id)
+            _LOGGER.error("User profile not found for user_id: %s (cannot assign pending measurement)", user_id)
             return False
 
         if timestamp not in self._pending_measurements:
-            _LOGGER.warning("No pending measurement found for timestamp: %s", timestamp)
+            _LOGGER.warning(
+                "No pending measurement found for timestamp: %s (cannot assign to user_id: %s)",
+                timestamp,
+                user_id,
+            )
             return False
 
         pending_data = self._pending_measurements.pop(timestamp)
@@ -2262,7 +2300,7 @@ class ScaleDataUpdateCoordinator:
 
         # Validate target user exists
         if to_user_id not in self._user_profiles_by_id:
-            _LOGGER.error("Target user %s not found in user profiles", to_user_id)
+            _LOGGER.error("User profile not found for user_id: %s (cannot reassign measurement)", to_user_id)
             return False
 
         _LOGGER.debug(
@@ -2326,12 +2364,15 @@ class ScaleDataUpdateCoordinator:
         # Remove from user's history
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.warning("User profile not found for user %s", user_id)
+            _LOGGER.error("User profile not found for user_id: %s (cannot remove measurement)", user_id)
             return False
 
         history = user_profile.get(CONF_WEIGHT_HISTORY, [])
         if not history:
-            _LOGGER.warning("No measurements in history for user %s", user_id)
+            _LOGGER.warning(
+                "No measurements in history for user_id: %s (cannot remove measurement)",
+                user_id,
+            )
             return False
 
         # Find and remove the measurement
@@ -2378,7 +2419,12 @@ class ScaleDataUpdateCoordinator:
             try:
                 update_callback(update_data)
             except Exception as ex:
-                _LOGGER.error("Error updating sensor for user %s: %s", user_id, ex)
+                _LOGGER.error(
+                    "Error updating sensor for user_id: %s (%s: %s)",
+                    user_id,
+                    type(ex).__name__,
+                    ex,
+                )
 
         return True
 
