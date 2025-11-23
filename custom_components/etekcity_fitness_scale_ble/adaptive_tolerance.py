@@ -11,6 +11,9 @@ import logging
 import math
 from datetime import datetime, timedelta
 
+from collections import defaultdict
+from dataclasses import dataclass
+
 from .const import (
     ADAPTIVE_TOLERANCE_MAX_MULTIPLIER,
     ADAPTIVE_TOLERANCE_MIN_MULTIPLIER,
@@ -29,6 +32,59 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+MAX_MEASUREMENTS_PER_DAY_FOR_TOLERANCE = 2
+
+
+@dataclass(frozen=True)
+class _MeasurementRecord:
+    """Measurement cache entry for aggregation."""
+
+    timestamp: datetime
+    data: dict
+
+
+def _limit_measurements_per_day(measurements: list[dict]) -> list[dict]:
+    """Limit measurement density so rapid repeats don't skew calculations."""
+
+    if len(measurements) <= MAX_MEASUREMENTS_PER_DAY_FOR_TOLERANCE:
+        return measurements
+
+    day_buckets: defaultdict[datetime.date, list[_MeasurementRecord]] = defaultdict(list)
+    for measurement in measurements:
+        timestamp = datetime.fromisoformat(measurement["timestamp"])
+        day_buckets[timestamp.date()].append(
+            _MeasurementRecord(timestamp=timestamp, data=measurement)
+        )
+
+    limited: list[_MeasurementRecord] = []
+    trimmed_count = 0
+
+    for items in day_buckets.values():
+        if len(items) <= MAX_MEASUREMENTS_PER_DAY_FOR_TOLERANCE:
+            limited.extend(items)
+            continue
+
+        # Keep measurement with minimum and maximum weight for the day
+        min_record = min(items, key=lambda rec: rec.data["weight_kg"])
+        max_record = max(items, key=lambda rec: rec.data["weight_kg"])
+
+        limited.append(min_record)
+        kept = 1
+        if max_record.data is not min_record.data:
+            limited.append(max_record)
+            kept += 1
+
+        trimmed_count += len(items) - kept
+
+    if trimmed_count > 0:
+        _LOGGER.debug(
+            "Limited measurement density: removed %d intra-day measurement(s) for adaptive tolerance calculations",
+            trimmed_count,
+        )
+
+    limited.sort(key=lambda rec: rec.timestamp)
+    return [record.data for record in limited]
 
 
 def calculate_base_tolerance(weight_kg: float) -> float:
@@ -91,6 +147,9 @@ def calculate_reference_weight(
     recent = [
         m for m in measurements if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
     ]
+
+    # Limit measurement density to avoid skew from rapid repeats
+    recent = _limit_measurements_per_day(recent)
 
     if not recent:
         # Fallback to most recent measurement outside window
@@ -166,11 +225,16 @@ def calculate_adaptive_tolerance(
     cutoff_time = current_time - timedelta(days=VARIANCE_WINDOW_DAYS)
 
     # Filter to variance window
-    recent = [
-        m["weight_kg"]
+    recent_measurements = [
+        m
         for m in measurements
         if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
     ]
+
+    # Limit measurement density within the window
+    recent_measurements = _limit_measurements_per_day(recent_measurements)
+
+    recent = [m["weight_kg"] for m in recent_measurements]
 
     # Need minimum measurements for statistical validity
     if len(recent) < MIN_MEASUREMENTS_FOR_ADAPTIVE:
