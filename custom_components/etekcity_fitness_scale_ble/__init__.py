@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
+from datetime import datetime
 
 import voluptuous as vol
-
-from datetime import datetime
 
 from bleak_retry_connector import close_stale_connections_by_address
 from homeassistant.components import bluetooth
@@ -199,7 +199,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await close_stale_connections_by_address(address)
 
     # Get user profiles from config entry
-    user_profiles = entry.data.get(CONF_USER_PROFILES, [])
+    user_profiles = deepcopy(entry.data.get(CONF_USER_PROFILES, []))
 
     coordinator = ScaleDataUpdateCoordinator(hass, address, user_profiles, entry.title)
     coordinator.set_config_entry_id(entry.entry_id)
@@ -303,6 +303,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         from_user_id = call.data[ATTR_FROM_USER_ID]
         to_user_id = call.data[ATTR_TO_USER_ID]
+        timestamp = call.data.get(ATTR_TIMESTAMP)  # Optional
 
         coord = _get_coordinator_for_device(device_id)
 
@@ -324,9 +325,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     f"Available users: {', '.join(user_names) if user_names else 'none'}"
                 )
 
-        if not coord.reassign_user_measurement(from_user_id, to_user_id):
+        if not coord.reassign_user_measurement(from_user_id, to_user_id, timestamp):
             raise HomeAssistantError(
-                "Failed to reassign measurement. Ensure source user has a recent measurement."
+                "Failed to reassign measurement. Ensure source user has the specified measurement."
             )
 
     async def handle_remove_measurement(call: ServiceCall) -> None:
@@ -336,6 +337,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device_id = _get_single_device_id(call)
 
         user_id = call.data[ATTR_USER_ID]
+        timestamp = call.data.get(ATTR_TIMESTAMP)  # Optional
         coord = _get_coordinator_for_device(device_id)
 
         # Validate user exists on this scale
@@ -355,9 +357,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 f"Available users: {', '.join(user_names) if user_names else 'none'}"
             )
 
-        if not coord.remove_user_measurement(user_id):
+        if not coord.remove_user_measurement(user_id, timestamp):
             raise HomeAssistantError(
-                "Failed to remove measurement. Ensure the user has a recent measurement."
+                "Failed to remove measurement. Ensure the user has the specified measurement."
             )
 
     # Register the services on first setup

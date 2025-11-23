@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from datetime import datetime, timedelta
 import logging
 from math import floor
@@ -36,7 +37,6 @@ from etekcity_esf551_ble import (
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr  # NEW import
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.const import UnitOfMass
@@ -47,10 +47,8 @@ from .const import (
     CONF_USER_ID,
     CONF_USER_NAME,
     CONF_WEIGHT_HISTORY,
-    DOMAIN,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
-    get_sensor_unique_id,
 )
 from .person_detector import PersonDetector
 
@@ -651,18 +649,32 @@ class ScaleDataUpdateCoordinator:
         self._diagnostic_listeners: list[Callable[[], None]] = []
         # User-specific callback registry: user_id -> list of callbacks
         self._user_callbacks: dict[str, list[Callable[[ScaleData], None]]] = {}
-        self._user_profiles = user_profiles
-        # User profiles dictionary for O(1) lookup efficiency
+        self._user_profiles = deepcopy(user_profiles)
         self._user_profiles_by_id: dict[str, dict] = {}
         v1_legacy_count = 0  # Track number of v1 legacy users (empty string user_id)
 
-        for profile in user_profiles:
+        for profile in self._user_profiles:
             user_id = profile.get(CONF_USER_ID)
             if user_id is not None:
                 self._user_profiles_by_id[user_id] = profile
                 # Count v1 legacy users (empty string reserved for v1 compatibility)
                 if user_id == "":
                     v1_legacy_count += 1
+                # Log loaded history count and range (temporary debugging)
+                history = profile.get(CONF_WEIGHT_HISTORY, [])
+                user_name = profile.get(CONF_USER_NAME, user_id)
+                _LOGGER.info(
+                    "📂 Loaded history for user %s (%s): %d measurements",
+                    user_name,
+                    user_id,
+                    len(history),
+                )
+                if history:
+                    _LOGGER.info(
+                        "   Range: %s to %s",
+                        history[0].get("timestamp", "?"),
+                        history[-1].get("timestamp", "?"),
+                    )
             else:
                 _LOGGER.warning(
                     "Skipping user profile without user_id: %s",
@@ -711,6 +723,24 @@ class ScaleDataUpdateCoordinator:
         """
         self._config_entry_id = config_entry_id
 
+    def _normalize_measurement(self, measurement: dict) -> dict:
+        """Normalize measurement dict to have consistent field order.
+
+        Args:
+            measurement: Raw measurement dict.
+
+        Returns:
+            Normalized measurement dict with fields in consistent order:
+            timestamp, weight_kg, impedance_ohm (if present).
+        """
+        normalized = {
+            "timestamp": measurement["timestamp"],
+            "weight_kg": measurement["weight_kg"],
+        }
+        if "impedance_ohm" in measurement:
+            normalized["impedance_ohm"] = measurement["impedance_ohm"]
+        return normalized
+
     def get_user_history(self, user_id: str) -> list[dict]:
         """Get weight history for a user.
 
@@ -719,12 +749,15 @@ class ScaleDataUpdateCoordinator:
 
         Returns:
             List of measurement dicts with 'timestamp', 'weight_kg', and optionally 'impedance_ohm'.
+            All measurements have consistent field order.
             Returns empty list if user not found or has no history.
         """
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
             return []
-        return user_profile.get(CONF_WEIGHT_HISTORY, [])
+        history = user_profile.get(CONF_WEIGHT_HISTORY, [])
+        # Normalize all measurements to ensure consistent field order
+        return [self._normalize_measurement(m) for m in history]
 
     def get_last_measurement(self, user_id: str) -> dict | None:
         """Get user's last measurement from history.
@@ -736,7 +769,14 @@ class ScaleDataUpdateCoordinator:
             Last measurement dict or None if no history.
         """
         history = self.get_user_history(user_id)
-        return history[-1] if history else None
+        result = history[-1] if history else None
+        _LOGGER.debug(
+            "get_last_measurement(%s): history_size=%d, returning %s",
+            user_id,
+            len(history),
+            "measurement" if result else "None",
+        )
+        return result
 
     def get_previous_measurement(self, user_id: str) -> dict | None:
         """Get user's second-to-last measurement from history.
@@ -775,6 +815,15 @@ class ScaleDataUpdateCoordinator:
 
         history = user_profile.setdefault(CONF_WEIGHT_HISTORY, [])
 
+        # Check for duplicate timestamp
+        if any(m["timestamp"] == timestamp for m in history):
+            _LOGGER.warning(
+                "Measurement with timestamp %s already exists for user %s, skipping duplicate",
+                timestamp,
+                user_id,
+            )
+            return
+
         # Build measurement dict
         measurement = {"timestamp": timestamp, "weight_kg": weight_kg}
         if impedance_ohm is not None:
@@ -794,6 +843,9 @@ class ScaleDataUpdateCoordinator:
             timestamp,
             len(history),
         )
+
+        # Log full history at INFO level for debugging (temporary)
+        self._log_user_history(user_id, "after adding measurement")
 
     def _cleanup_history(self, user_profile: dict) -> None:
         """Remove old and excess measurements from history.
@@ -818,6 +870,51 @@ class ScaleDataUpdateCoordinator:
         if len(history) > MAX_HISTORY_SIZE:
             history[:] = history[-MAX_HISTORY_SIZE:]
 
+    def _log_user_history(self, user_id: str, context: str) -> None:
+        """Log user's full weight history at INFO level for debugging.
+
+        This is a temporary debugging measure to track history changes.
+
+        Args:
+            user_id: User ID to log history for.
+            context: Description of when this log is being made (e.g., "after adding measurement").
+        """
+        user_profile = self._user_profiles_by_id.get(user_id)
+        if not user_profile:
+            _LOGGER.info(
+                "📊 Weight history for user %s (%s): USER NOT FOUND",
+                user_id,
+                context,
+            )
+            return
+
+        user_name = user_profile.get(CONF_USER_NAME, user_id)
+        # Use normalized history for consistency with sensor attributes
+        history = self.get_user_history(user_id)
+
+        if not history:
+            _LOGGER.info(
+                "📊 Weight history for user %s (%s): EMPTY (0 measurements)",
+                user_name,
+                context,
+            )
+            return
+
+        # Format history as a readable list
+        history_str = "\n".join(
+            f"  {i+1}. {m['timestamp']}: {m['weight_kg']:.2f} kg"
+            + (f" ({m['impedance_ohm']} Ω)" if "impedance_ohm" in m else "")
+            for i, m in enumerate(history)
+        )
+
+        _LOGGER.info(
+            "📊 Weight history for user %s (%s): %d measurement(s)\n%s",
+            user_name,
+            context,
+            len(history),
+            history_str,
+        )
+
     def _update_config_entry(self) -> None:
         """Update config entry with current user profiles.
 
@@ -834,9 +931,29 @@ class ScaleDataUpdateCoordinator:
             )
             return
 
+        # Log what we're about to persist (temporary debugging)
+        for profile in self._user_profiles:
+            user_name = profile.get(CONF_USER_NAME, "Unknown")
+            user_id = profile.get(CONF_USER_ID, "Unknown")
+            history = profile.get(CONF_WEIGHT_HISTORY, [])
+            _LOGGER.info(
+                "💾 Persisting history for user %s (%s): %d measurements",
+                user_name,
+                user_id,
+                len(history),
+            )
+            # Log first and last timestamps for verification
+            if history:
+                _LOGGER.info(
+                    "   Range: %s to %s",
+                    history[0].get("timestamp", "?"),
+                    history[-1].get("timestamp", "?"),
+                )
+
         # Update the entry with current user profiles
         new_data = {**entry.data}
-        new_data["user_profiles"] = self._user_profiles
+        # Persist a deep copy so config entry data doesn't share references
+        new_data["user_profiles"] = deepcopy(self._user_profiles)
 
         self._hass.config_entries.async_update_entry(entry, data=new_data)
         _LOGGER.debug("Updated config entry with current user profiles")
@@ -1346,8 +1463,10 @@ class ScaleDataUpdateCoordinator:
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
 
-    def _route_to_user(self, user_id: str, data: ScaleData, timestamp: str) -> None:
-        """Route measurement to a specific user's sensors.
+    def _route_to_user_internal(
+        self, user_id: str, data: ScaleData, timestamp: str
+    ) -> None:
+        """Internal method to route measurement to a specific user's sensors without persisting.
 
         Args:
             user_id: The user ID to route to.
@@ -1367,10 +1486,36 @@ class ScaleDataUpdateCoordinator:
         if weight_kg is not None:
             # Add to persistent history
             self._add_measurement_to_history(user_id, timestamp, weight_kg, impedance)
-            # Persist to config entry
-            self._update_config_entry()
 
-        # Calculate body metrics if enabled for this user
+        # Check if the added measurement is the newest (by timestamp)
+        # If not, this is a backfill scenario - update sensors with current newest to refresh attributes
+        newest_measurement = self.get_last_measurement(user_id)
+        is_backfill = (
+            newest_measurement and newest_measurement["timestamp"] != timestamp
+        )
+
+        if is_backfill:
+            _LOGGER.debug(
+                "Added historical measurement %s for user %s, will update sensors with current newest %s to refresh attributes",
+                timestamp,
+                user_id,
+                newest_measurement["timestamp"],
+            )
+            # Build ScaleData from the current newest measurement (not the backfilled one)
+            data = self._build_measurement_data_from_history(
+                user_id, newest_measurement
+            )
+            # Route to sensors to refresh state and attributes
+            for update_callback in self._user_callbacks.get(user_id, []):
+                try:
+                    update_callback(data)
+                except Exception as ex:
+                    _LOGGER.error(
+                        "Error updating listener for user %s: %s", user_id, ex
+                    )
+            return
+
+        # Calculate body metrics if enabled for this user (newest measurement scenario)
         if user_profile.get("body_metrics_enabled", False):
             try:
                 from etekcity_esf551_ble.body_metrics import (
@@ -1428,6 +1573,17 @@ class ScaleDataUpdateCoordinator:
                 update_callback(data)
             except Exception as ex:
                 _LOGGER.error("Error updating listener for user %s: %s", user_id, ex)
+
+    def _route_to_user(self, user_id: str, data: ScaleData, timestamp: str) -> None:
+        """Route measurement to a specific user's sensors.
+
+        Args:
+            user_id: The user ID to route to.
+            data: The scale data to send.
+            timestamp: ISO timestamp of when the measurement was received.
+        """
+        self._route_to_user_internal(user_id, data, timestamp)
+        self._update_config_entry()
 
     async def _send_mobile_notifications_for_ambiguous_measurement(
         self,
@@ -1943,15 +2099,15 @@ class ScaleDataUpdateCoordinator:
 
         return True
 
-    def reassign_user_measurement(self, from_user_id: str, to_user_id: str) -> bool:
-        """Reassign a user's last measurement to a different user.
-
-        This works both for the current session (using in-memory data) and after
-        a restart (by retrieving data from sensor state).
+    def reassign_user_measurement(
+        self, from_user_id: str, to_user_id: str, timestamp: str | None = None
+    ) -> bool:
+        """Reassign a measurement from one user to another.
 
         Args:
             from_user_id: The user ID to take the measurement from.
             to_user_id: The user ID to assign the measurement to.
+            timestamp: Specific timestamp to reassign, or None for newest (backward compatible).
 
         Returns:
             True if reassignment succeeded, False otherwise.
@@ -1960,104 +2116,58 @@ class ScaleDataUpdateCoordinator:
             Caller is responsible for validating that both user IDs exist.
             Service handlers in __init__.py perform this validation.
         """
-        # Get last measurement from source user's history
-        last_measurement = self.get_last_measurement(from_user_id)
-
-        if not last_measurement:
-            # Try to get from sensor states using Entity Registry
-            # We'll retrieve only RAW measurements (weight, impedance)
-            # Body metrics are calculated and should be recalculated for target user
-            entity_reg = er.async_get(self._hass)
-            measurements = {}
-
-            # Only retrieve raw scale measurements (not calculated body metrics)
-            sensor_keys = ["weight", "impedance"]
-
-            # Retrieve each sensor's state
-            for sensor_key in sensor_keys:
-                # Construct the unique_id for this sensor using helper function
-                sensor_unique_id = get_sensor_unique_id(
-                    self._device_name, from_user_id, sensor_key
-                )
-
-                # Look up the entity_id
-                sensor_entity_id = entity_reg.async_get_entity_id(
-                    "sensor", DOMAIN, sensor_unique_id
-                )
-
-                if sensor_entity_id:
-                    sensor_state = self._hass.states.get(sensor_entity_id)
-                    if sensor_state and sensor_state.state not in (
-                        "unknown",
-                        "unavailable",
-                    ):
-                        try:
-                            if sensor_key == "weight":
-                                # For weight, convert to kg (native unit) if needed
-                                value = float(sensor_state.state)
-                                unit = sensor_state.attributes.get(
-                                    "unit_of_measurement"
-                                )
-                                if unit == UnitOfMass.POUNDS:
-                                    # Convert pounds to kilograms (native unit)
-                                    value = MassConverter.convert(
-                                        value, UnitOfMass.POUNDS, UnitOfMass.KILOGRAMS
-                                    )
-                                measurements[sensor_key] = value
-                            else:
-                                # For impedance, use value as-is (no unit conversion)
-                                value = float(sensor_state.state)
-                                measurements[sensor_key] = value
-
-                            _LOGGER.debug(
-                                "Retrieved %s from sensor state for user %s: %s",
-                                sensor_key,
-                                from_user_id,
-                                measurements[sensor_key],
-                            )
-                        except (ValueError, TypeError, AttributeError):
-                            # Skip sensors that can't be parsed
-                            pass
-
-            # We need at least weight to proceed
-            if "weight" not in measurements:
-                _LOGGER.warning(
-                    "Cannot reassign from user %s: weight sensor not found or unavailable",
-                    from_user_id,
-                )
-                return False
-
-            _LOGGER.debug(
-                "Retrieved %d raw measurements from sensor states for user %s",
-                len(measurements),
+        # Get measurement from source user's history
+        history = self.get_user_history(from_user_id)
+        if not history:
+            _LOGGER.warning(
+                "Cannot reassign from user %s: no measurement history found",
                 from_user_id,
             )
+            return False
+
+        # Find the measurement to reassign
+        measurement_to_reassign = None
+        if timestamp is None:
+            # Backward compatible: reassign newest
+            measurement_to_reassign = history[-1]
+            measurement_timestamp = measurement_to_reassign["timestamp"]
         else:
-            # Convert history format to measurements format
-            # History uses "weight_kg" and "impedance_ohm", convert to "weight" and "impedance"
-            measurements = {
-                "weight": last_measurement["weight_kg"],
-                "timestamp": last_measurement["timestamp"],
-            }
-            if "impedance_ohm" in last_measurement:
-                measurements["impedance"] = last_measurement["impedance_ohm"]
+            # Find specific timestamp
+            for m in history:
+                if m["timestamp"] == timestamp:
+                    measurement_to_reassign = m
+                    measurement_timestamp = timestamp
+                    break
 
-            _LOGGER.debug(
-                "Retrieved last measurement from history for user %s: weight=%.2f kg%s",
-                from_user_id,
-                measurements["weight"],
-                f", impedance={measurements.get('impedance')} Ω"
-                if "impedance" in measurements
-                else "",
+        if not measurement_to_reassign:
+            _LOGGER.warning(
+                "Timestamp %s not found in history for user %s", timestamp, from_user_id
             )
+            return False
+
+        # Convert history format to measurements format
+        # History uses "weight_kg" and "impedance_ohm", convert to "weight" and "impedance"
+        measurements = {
+            "weight": measurement_to_reassign["weight_kg"],
+            "timestamp": measurement_timestamp,
+        }
+        if "impedance_ohm" in measurement_to_reassign:
+            measurements["impedance"] = measurement_to_reassign["impedance_ohm"]
+
+        _LOGGER.debug(
+            "Retrieved measurement from history for user %s: weight=%.2f kg%s, timestamp=%s",
+            from_user_id,
+            measurements["weight"],
+            f", impedance={measurements.get('impedance')} Ω"
+            if "impedance" in measurements
+            else "",
+            measurement_timestamp,
+        )
 
         # Validate target user exists
         if to_user_id not in self._user_profiles_by_id:
             _LOGGER.error("Target user %s not found in user profiles", to_user_id)
             return False
-
-        # Extract timestamp from measurements if available
-        measurement_timestamp = measurements.get("timestamp")
 
         _LOGGER.debug(
             "Reassigning raw measurement from user %s to user %s (weight: %.2f kg%s, timestamp: %s)",
@@ -2071,44 +2181,89 @@ class ScaleDataUpdateCoordinator:
         )
 
         # Create ScaleData with only raw measurements
-        # Body metrics will be recalculated by _route_to_user() based on target user's profile
+        # Body metrics will be recalculated by _route_to_user_internal() based on target user's profile
         scale_data = ScaleData(measurements=measurements)
 
         # Remove measurement from source user (this updates source user's sensors)
-        self.remove_user_measurement(from_user_id)
+        # Use internal method to avoid persisting - we'll persist once at the end
+        if not self._remove_user_measurement_internal(
+            from_user_id, measurement_timestamp
+        ):
+            return False
 
-        # Route to target user (this will add to target's history and persist)
+        # Route to target user (this will add to target's history)
         # Pass the original timestamp to preserve measurement time
-        self._route_to_user(to_user_id, scale_data, timestamp=measurement_timestamp)
+        # Use internal method to avoid persisting - we'll persist once at the end
+        self._route_to_user_internal(
+            to_user_id, scale_data, timestamp=measurement_timestamp
+        )
+
+        # Persist changes once after both operations complete
         self._update_config_entry()
+
+        # Log both histories at INFO level for debugging (temporary)
+        _LOGGER.info("=== REASSIGN COMPLETE ===")
+        self._log_user_history(from_user_id, "source user (after removal)")
+        self._log_user_history(to_user_id, "target user (after adding)")
 
         return True
 
-    def remove_user_measurement(self, user_id: str) -> bool:
-        """Remove a user's last measurement (revert to previous or unavailable).
+    def _remove_user_measurement_internal(
+        self, user_id: str, timestamp: str | None = None
+    ) -> bool:
+        """Internal method to remove a measurement from user's history without persisting.
 
         Args:
             user_id: The user ID to remove the measurement from.
+            timestamp: Specific timestamp to remove, or None for newest (backward compatible).
 
         Returns:
             True if removal succeeded, False otherwise.
         """
-        _LOGGER.debug("Removing last measurement for user %s", user_id)
+        if timestamp:
+            _LOGGER.debug(
+                "Removing measurement with timestamp %s for user %s", timestamp, user_id
+            )
+        else:
+            _LOGGER.debug("Removing newest measurement for user %s", user_id)
 
         # Remove from user's history
         user_profile = self._user_profiles_by_id.get(user_id)
-        if user_profile:
-            history = user_profile.get(CONF_WEIGHT_HISTORY, [])
-            if history:
-                removed = history.pop()  # Remove last measurement
-                _LOGGER.debug(
-                    "Removed measurement from user %s history: weight=%.2f kg, timestamp=%s",
-                    user_id,
-                    removed.get("weight_kg"),
-                    removed.get("timestamp"),
-                )
-            else:
-                _LOGGER.warning("No measurements in history for user %s", user_id)
+        if not user_profile:
+            _LOGGER.warning("User profile not found for user %s", user_id)
+            return False
+
+        history = user_profile.get(CONF_WEIGHT_HISTORY, [])
+        if not history:
+            _LOGGER.warning("No measurements in history for user %s", user_id)
+            return False
+
+        # Find and remove the measurement
+        removed = None
+        if timestamp is None:
+            # Backward compatible: remove newest (last in sorted list)
+            removed = history.pop()
+        else:
+            # Remove specific timestamp
+            for i, m in enumerate(history):
+                if m["timestamp"] == timestamp:
+                    removed = history.pop(i)
+                    break
+
+        if not removed:
+            _LOGGER.warning(
+                "Timestamp %s not found in history for user %s", timestamp, user_id
+            )
+            return False
+
+        _LOGGER.debug(
+            "Removed measurement from user %s history: weight=%.2f kg, timestamp=%s",
+            user_id,
+            removed.get("weight_kg"),
+            removed.get("timestamp"),
+        )
+        # Log full history at INFO level for debugging (temporary)
+        self._log_user_history(user_id, "after removing measurement")
 
         # Update user's sensors with their new last measurement (after removal)
         # This recalculates body metrics from the remaining measurement
@@ -2129,7 +2284,21 @@ class ScaleDataUpdateCoordinator:
             except Exception as ex:
                 _LOGGER.error("Error updating sensor for user %s: %s", user_id, ex)
 
-        # Persist changes to config entry
-        self._update_config_entry()
+        return True
 
+    def remove_user_measurement(
+        self, user_id: str, timestamp: str | None = None
+    ) -> bool:
+        """Remove a measurement from user's history.
+
+        Args:
+            user_id: The user ID to remove the measurement from.
+            timestamp: Specific timestamp to remove, or None for newest (backward compatible).
+
+        Returns:
+            True if removal succeeded, False otherwise.
+        """
+        if not self._remove_user_measurement_internal(user_id, timestamp):
+            return False
+        self._update_config_entry()
         return True

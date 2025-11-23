@@ -508,10 +508,17 @@ class ScaleWeightSensor(ScaleSensor):
     @property
     def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
-        return {
+        attrs = {
             HW_VERSION_KEY: self._attr_device_info.get(HW_VERSION_KEY),
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
+
+        # Add weight history for this user
+        if self._user_id:
+            history = self._coordinator.get_user_history(self._user_id)
+            attrs["weight_history"] = history
+
+        return attrs
 
     @property
     def extra_restore_state_data(self) -> ScaleWeightSensorExtraStoredData:
@@ -682,10 +689,17 @@ class ScaleUserWeightSensor(ScaleUserSensor):
     @property
     def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
-        return {
+        attrs = {
             HW_VERSION_KEY: self._attr_device_info.get(HW_VERSION_KEY),
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
+
+        # Add weight history for this user
+        if self._user_id:
+            history = self._coordinator.get_user_history(self._user_id)
+            attrs["weight_history"] = history
+
+        return attrs
 
     @property
     def extra_restore_state_data(self) -> ScaleWeightSensorExtraStoredData:
