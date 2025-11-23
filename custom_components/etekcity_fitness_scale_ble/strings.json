@@ -130,9 +130,15 @@
       },
       "scale_settings": {
         "title": "Scale Settings",
-        "description": "Configure scale display unit",
+        "description": "Configure scale display unit and history limits",
         "data": {
-          "scale_display_unit": "Scale Display Unit"
+          "scale_display_unit": "Scale Display Unit",
+          "history_retention_days": "History Retention (days)",
+          "max_history_size": "Max History Size (measurements)"
+        },
+        "data_description": {
+          "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",
+          "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements."
         }
       }
     },

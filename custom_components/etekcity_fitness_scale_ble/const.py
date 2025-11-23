@@ -29,8 +29,12 @@ CONF_WEIGHT_HISTORY = "weight_history"
 V1_LEGACY_USER_ID = ""
 
 # Weight history tracking (v3+)
-HISTORY_RETENTION_DAYS = 90  # Maximum age of measurements to retain
-MAX_HISTORY_SIZE = 100  # Maximum number of measurements per user
+HISTORY_RETENTION_DAYS = 90  # Maximum age of measurements to retain (default)
+MAX_HISTORY_SIZE = 100  # Maximum number of measurements per user (default)
+
+# Configurable history settings (v4+)
+CONF_HISTORY_RETENTION_DAYS = "history_retention_days"
+CONF_MAX_HISTORY_SIZE = "max_history_size"
 
 # Adaptive tolerance - base calculation (hybrid percentage with bounds)
 DEFAULT_TOLERANCE_PERCENTAGE = 0.04  # 4% of user's weight

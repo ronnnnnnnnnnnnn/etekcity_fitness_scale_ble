@@ -29,7 +29,9 @@ from .const import (
     CONF_CREATED_AT,
     CONF_FEET,
     CONF_HEIGHT,
+    CONF_HISTORY_RETENTION_DAYS,
     CONF_INCHES,
+    CONF_MAX_HISTORY_SIZE,
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
@@ -39,6 +41,8 @@ from .const import (
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     DOMAIN,
+    HISTORY_RETENTION_DAYS,
+    MAX_HISTORY_SIZE,
     get_sensor_unique_id,
 )
 from .sensor import SENSOR_DESCRIPTIONS
@@ -662,6 +666,12 @@ class ScaleOptionsFlow(OptionsFlow):
         self.display_unit = config_entry.data.get(
             CONF_SCALE_DISPLAY_UNIT, UnitOfMass.KILOGRAMS
         )
+        self.history_retention_days = config_entry.data.get(
+            CONF_HISTORY_RETENTION_DAYS, HISTORY_RETENTION_DAYS
+        )
+        self.max_history_size = config_entry.data.get(
+            CONF_MAX_HISTORY_SIZE, MAX_HISTORY_SIZE
+        )
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1273,10 +1283,12 @@ class ScaleOptionsFlow(OptionsFlow):
     ) -> FlowResult:
         """Change scale settings."""
         if user_input is not None:
-            # Update display unit
+            # Update settings
             new_data = {
                 **self.config_entry.data,
                 CONF_SCALE_DISPLAY_UNIT: user_input[CONF_SCALE_DISPLAY_UNIT],
+                CONF_HISTORY_RETENTION_DAYS: user_input[CONF_HISTORY_RETENTION_DAYS],
+                CONF_MAX_HISTORY_SIZE: user_input[CONF_MAX_HISTORY_SIZE],
             }
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=new_data
@@ -1298,6 +1310,20 @@ class ScaleOptionsFlow(OptionsFlow):
                             UnitOfMass.KILOGRAMS: "Metric (kg)",
                             UnitOfMass.POUNDS: "Imperial (lbs)",
                         }
+                    ),
+                    vol.Required(
+                        CONF_HISTORY_RETENTION_DAYS,
+                        default=self.history_retention_days,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=1, max=365),
+                    ),
+                    vol.Required(
+                        CONF_MAX_HISTORY_SIZE,
+                        default=self.max_history_size,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=10, max=1000),
                     ),
                 }
             ),

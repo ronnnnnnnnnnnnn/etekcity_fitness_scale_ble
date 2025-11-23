@@ -44,6 +44,8 @@ from homeassistant.const import UnitOfMass
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
+    CONF_HISTORY_RETENTION_DAYS,
+    CONF_MAX_HISTORY_SIZE,
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_USER_ID,
     CONF_USER_NAME,
@@ -811,7 +813,10 @@ class ScaleDataUpdateCoordinator:
         """
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("User profile not found for user_id: %s (cannot add measurement)", user_id)
+            _LOGGER.error(
+                "User profile not found for user_id: %s (cannot add measurement)",
+                user_id,
+            )
             return
 
         history = user_profile.setdefault(CONF_WEIGHT_HISTORY, [])
@@ -840,7 +845,7 @@ class ScaleDataUpdateCoordinator:
         else:
             # Empty history, just append
             history.append(measurement)
-        
+
         # Ensure list remains sorted (defensive check in case history wasn't sorted initially)
         # This is O(n log n) but only runs if needed, and history is small (max 100 items)
         if len(history) > 1:
@@ -865,10 +870,40 @@ class ScaleDataUpdateCoordinator:
 
         self._log_user_history(user_id, "after adding measurement")
 
+    def _get_history_retention_days(self) -> int:
+        """Get history retention days from config entry or use default.
+
+        Returns:
+            Number of days to retain history (default: HISTORY_RETENTION_DAYS).
+        """
+        if not self._config_entry_id:
+            return HISTORY_RETENTION_DAYS
+
+        entry = self._hass.config_entries.async_get_entry(self._config_entry_id)
+        if not entry:
+            return HISTORY_RETENTION_DAYS
+
+        return entry.data.get(CONF_HISTORY_RETENTION_DAYS, HISTORY_RETENTION_DAYS)
+
+    def _get_max_history_size(self) -> int:
+        """Get max history size from config entry or use default.
+
+        Returns:
+            Maximum number of measurements per user (default: MAX_HISTORY_SIZE).
+        """
+        if not self._config_entry_id:
+            return MAX_HISTORY_SIZE
+
+        entry = self._hass.config_entries.async_get_entry(self._config_entry_id)
+        if not entry:
+            return MAX_HISTORY_SIZE
+
+        return entry.data.get(CONF_MAX_HISTORY_SIZE, MAX_HISTORY_SIZE)
+
     def _cleanup_history(self, user_profile: dict) -> None:
         """Remove old and excess measurements from history.
 
-        Enforces HISTORY_RETENTION_DAYS and MAX_HISTORY_SIZE limits.
+        Enforces configurable HISTORY_RETENTION_DAYS and MAX_HISTORY_SIZE limits.
 
         Args:
             user_profile: User profile dict to cleanup.
@@ -878,9 +913,13 @@ class ScaleDataUpdateCoordinator:
         if not history:
             return
 
+        # Get configurable limits
+        retention_days = self._get_history_retention_days()
+        max_size = self._get_max_history_size()
+
         # Remove measurements older than retention window
         # Handle invalid timestamps gracefully to prevent crashes from corrupted data
-        cutoff_time = datetime.now() - timedelta(days=HISTORY_RETENTION_DAYS)
+        cutoff_time = datetime.now() - timedelta(days=retention_days)
         valid_measurements = []
         for m in history:
             timestamp_str = m.get("timestamp")
@@ -902,8 +941,8 @@ class ScaleDataUpdateCoordinator:
         history[:] = valid_measurements
 
         # Enforce max size (keep newest)
-        if len(history) > MAX_HISTORY_SIZE:
-            history[:] = history[-MAX_HISTORY_SIZE:]
+        if len(history) > max_size:
+            history[:] = history[-max_size:]
 
     def _log_user_history(self, user_id: str, context: str) -> None:
         """Log user's full weight history at DEBUG level for debugging.
@@ -1364,13 +1403,18 @@ class ScaleDataUpdateCoordinator:
             for user_id, service_name in notified_services:
                 tag = f"scale_measurement_{oldest_timestamp}"
 
-                async def _safe_clear_notification(service: str, notification_tag: str) -> None:
+                async def _safe_clear_notification(
+                    service: str, notification_tag: str
+                ) -> None:
                     """Safely clear notification with error handling."""
                     try:
                         await self._hass.services.async_call(
                             "notify",
                             service,
-                            {"message": "clear_notification", "data": {"tag": notification_tag}},
+                            {
+                                "message": "clear_notification",
+                                "data": {"tag": notification_tag},
+                            },
                         )
                         _LOGGER.debug(
                             "Dismissed mobile notification for user %s on %s (tag: %s)",
@@ -1431,7 +1475,9 @@ class ScaleDataUpdateCoordinator:
             data: The scale data to send to listeners.
         """
         if not data:
-            _LOGGER.warning("Received empty data update from scale (address: %s)", self.address)
+            _LOGGER.warning(
+                "Received empty data update from scale (address: %s)", self.address
+            )
             return
 
         # Log received measurements
@@ -1553,7 +1599,10 @@ class ScaleDataUpdateCoordinator:
         # Find user profile using O(1) dictionary lookup
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("User profile not found for user_id: %s (cannot route measurement)", user_id)
+            _LOGGER.error(
+                "User profile not found for user_id: %s (cannot route measurement)",
+                user_id,
+            )
             return
 
         # Store measurement in user's weight history
@@ -2067,7 +2116,10 @@ class ScaleDataUpdateCoordinator:
         """
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("User profile not found for user_id: %s (cannot build measurement data)", user_id)
+            _LOGGER.error(
+                "User profile not found for user_id: %s (cannot build measurement data)",
+                user_id,
+            )
             return ScaleData(measurements={})
 
         # Convert history format to measurement format
@@ -2142,7 +2194,8 @@ class ScaleDataUpdateCoordinator:
             except Exception as ex:
                 # Catch unexpected errors and log with full traceback
                 _LOGGER.exception(
-                    "Unexpected error recalculating body metrics for user_id: %s", user_id
+                    "Unexpected error recalculating body metrics for user_id: %s",
+                    user_id,
                 )
 
         return ScaleData(measurements=measurements)
@@ -2173,7 +2226,10 @@ class ScaleDataUpdateCoordinator:
         """
         # Validate user_id exists
         if user_id not in self._user_profiles_by_id:
-            _LOGGER.error("User profile not found for user_id: %s (cannot assign pending measurement)", user_id)
+            _LOGGER.error(
+                "User profile not found for user_id: %s (cannot assign pending measurement)",
+                user_id,
+            )
             return False
 
         if timestamp not in self._pending_measurements:
@@ -2299,7 +2355,10 @@ class ScaleDataUpdateCoordinator:
 
         # Validate target user exists
         if to_user_id not in self._user_profiles_by_id:
-            _LOGGER.error("User profile not found for user_id: %s (cannot reassign measurement)", to_user_id)
+            _LOGGER.error(
+                "User profile not found for user_id: %s (cannot reassign measurement)",
+                to_user_id,
+            )
             return False
 
         _LOGGER.debug(
@@ -2362,7 +2421,10 @@ class ScaleDataUpdateCoordinator:
         # Remove from user's history
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.error("User profile not found for user_id: %s (cannot remove measurement)", user_id)
+            _LOGGER.error(
+                "User profile not found for user_id: %s (cannot remove measurement)",
+                user_id,
+            )
             return False
 
         history = user_profile.get(CONF_WEIGHT_HISTORY, [])
