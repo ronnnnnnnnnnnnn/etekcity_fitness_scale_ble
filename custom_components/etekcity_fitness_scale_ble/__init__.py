@@ -277,9 +277,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     user_name = p.get(CONF_USER_NAME, "Unknown")
                     # Format user_id for display (empty string shows as "(legacy)" for clarity)
                     if profile_user_id == "":
-                        user_list_items.append(f"{user_name} (use empty string \"\" as user_id)")
+                        user_list_items.append(
+                            f'{user_name} (use empty string "" as user_id)'
+                        )
                     else:
-                        user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
+                        user_list_items.append(
+                            f"{user_name} (user_id: {profile_user_id})"
+                        )
             available_users = ", ".join(user_list_items) if user_list_items else "none"
             raise HomeAssistantError(
                 f"User '{user_id}' not found for this scale. "
@@ -340,10 +344,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         user_name = p.get(CONF_USER_NAME, "Unknown")
                         # Format user_id for display (empty string shows as "(legacy)" for clarity)
                         if profile_user_id == "":
-                            user_list_items.append(f"{user_name} (use empty string \"\" as user_id)")
+                            user_list_items.append(
+                                f'{user_name} (use empty string "" as user_id)'
+                            )
                         else:
-                            user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
-                available_users = ", ".join(user_list_items) if user_list_items else "none"
+                            user_list_items.append(
+                                f"{user_name} (user_id: {profile_user_id})"
+                            )
+                available_users = (
+                    ", ".join(user_list_items) if user_list_items else "none"
+                )
                 raise HomeAssistantError(
                     f"User '{uid}' not found for this scale. "
                     f"Please check the user ID and try again. "
@@ -388,9 +398,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     user_name = p.get(CONF_USER_NAME, "Unknown")
                     # Format user_id for display (empty string shows as "(legacy)" for clarity)
                     if profile_user_id == "":
-                        user_list_items.append(f"{user_name} (use empty string \"\" as user_id)")
+                        user_list_items.append(
+                            f'{user_name} (use empty string "" as user_id)'
+                        )
                     else:
-                        user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
+                        user_list_items.append(
+                            f"{user_name} (user_id: {profile_user_id})"
+                        )
             available_users = ", ".join(user_list_items) if user_list_items else "none"
             raise HomeAssistantError(
                 f"User '{user_id}' not found for this scale. "
@@ -454,7 +468,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             action_value: str, prefix: str
         ) -> tuple[str, str] | None:
             """Extract user_id and timestamp tokens from an action string.
-            
+
             Handles v1 legacy user_id (empty string) by using __legacy__ placeholder.
             """
             if not action_value.startswith(prefix):

@@ -50,7 +50,9 @@ def _limit_measurements_per_day(measurements: list[dict]) -> list[dict]:
     if len(measurements) <= MAX_MEASUREMENTS_PER_DAY_FOR_TOLERANCE:
         return measurements
 
-    day_buckets: defaultdict[datetime.date, list[_MeasurementRecord]] = defaultdict(list)
+    day_buckets: defaultdict[datetime.date, list[_MeasurementRecord]] = defaultdict(
+        list
+    )
     for measurement in measurements:
         timestamp = datetime.fromisoformat(measurement["timestamp"])
         day_buckets[timestamp.date()].append(
@@ -226,9 +228,7 @@ def calculate_adaptive_tolerance(
 
     # Filter to variance window
     recent_measurements = [
-        m
-        for m in measurements
-        if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
+        m for m in measurements if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
     ]
 
     # Limit measurement density within the window

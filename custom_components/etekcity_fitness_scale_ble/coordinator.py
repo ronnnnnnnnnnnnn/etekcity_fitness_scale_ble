@@ -998,9 +998,14 @@ class ScaleDataUpdateCoordinator:
 
     def _log_user_history(self, user_id: str, context: str) -> None:
         """Log concise history summary for debugging without spamming logs."""
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.debug("History summary skipped: user %s missing (%s)", user_id, context)
+            _LOGGER.debug(
+                "History summary skipped: user %s missing (%s)", user_id, context
+            )
             return
 
         history = user_profile.get(CONF_WEIGHT_HISTORY, [])
@@ -1826,7 +1831,9 @@ class ScaleDataUpdateCoordinator:
                     message = f"{weight_display} at {time_display}. Is this yours?"
                     # Use placeholder for empty string user_id (v1 legacy compatibility)
                     encoded_user_id = (
-                        LEGACY_USER_ID_PLACEHOLDER if user_id == "" else quote(user_id, safe="")
+                        LEGACY_USER_ID_PLACEHOLDER
+                        if user_id == ""
+                        else quote(user_id, safe="")
                     )
 
                     actions = [
@@ -1860,7 +1867,9 @@ class ScaleDataUpdateCoordinator:
                     for user_id, user_name in users[:3]:
                         # Use placeholder for empty string user_id (v1 legacy compatibility)
                         encoded_user_id = (
-                            LEGACY_USER_ID_PLACEHOLDER if user_id == "" else quote(user_id, safe="")
+                            LEGACY_USER_ID_PLACEHOLDER
+                            if user_id == ""
+                            else quote(user_id, safe="")
                         )
                         actions.append(
                             {
