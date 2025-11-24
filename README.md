@@ -7,7 +7,10 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 ## Features
 
 - Automatic discovery of Etekcity BLE fitness scales
-- Multi-user support with automatic person detection based on weight history and Home Assistant person location
+- Intelligent multi-user support:
+    - Automatically detects which person is using the scale based on their weight history.
+    - Uses an adaptive tolerance system that adjusts to each user's weight fluctuations over time.
+    - Supports linking users to Home Assistant Person entities to exclude users who are `not_home`.
 - Real-time weight and impedance measurements
 - Optional body composition metrics calculation including:
     - Body Mass Index (BMI)
@@ -85,7 +88,7 @@ This integration is designed for households with multiple users. You can create 
 
 When a new measurement is received, the integration attempts to automatically assign it to the correct person based on two factors:
 
-1. **Weight History:** The measurement is compared against each user's last known weight.
+1. **Weight History:** The measurement is compared against each user's weight history.
 2. **Location:** If a user profile is linked to a Home Assistant `person` entity, the integration checks if that person is `home`. Users who are `not_home` are excluded from automatic assignment.
 
 If a single user is a clear match, the measurement is assigned automatically.
@@ -107,6 +110,12 @@ You can manage user profiles by navigating to your device in **Settings > Device
 - **Edit a user:** Update a user's name, linked person entity, mobile devices, or body metric settings.
 - **Remove a user:** Delete a user's profile and all associated sensor entities.
 
+## Legacy Default User (Old Version Migration)
+
+If you used the original single-user version of the integration, migrating to this version keeps your existing sensors by creating a "Default User" whose `user_id` is an empty string (`""`):
+- Sensors for the legacy user keep their original entity IDs (no name prefix) so dashboards and automations continue working.
+- When calling services, set `user_id: ""` anytime you want to target the legacy profile.
+
 ## Services
 
 The integration provides services to manage measurements, especially for handling ambiguous weigh-ins. You can use these in scripts or automations, or call them directly from **Developer Tools > Actions**.
@@ -120,7 +129,7 @@ service: etekcity_fitness_scale_ble.assign_measurement
 data:
   device_id: <your_scale_device_id>
   timestamp: "2025-11-06T15:30:00.123456"
-  user_id: "jane"
+  user_id: "jane" # or "" for legacy user
 ```
 
 ### `etekcity_fitness_scale_ble.reassign_measurement`
@@ -132,7 +141,7 @@ service: etekcity_fitness_scale_ble.reassign_measurement
 data:
   device_id: <your_scale_device_id>
   from_user_id: "john2"
-  to_user_id: "jane"
+  to_user_id: "jane" # or "" for legacy user
 ```
 
 ### `etekcity_fitness_scale_ble.remove_measurement`
@@ -143,7 +152,7 @@ Remove the last measurement for a specific user. This will revert the user's sen
 service: etekcity_fitness_scale_ble.remove_measurement
 data:
   device_id: <your_scale_device_id>
-  user_id: "john2"
+  user_id: "john2" # or "" for legacy user
 ```
 
 ## Diagnostic Sensors

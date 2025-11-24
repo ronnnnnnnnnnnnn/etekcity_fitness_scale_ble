@@ -663,17 +663,16 @@ class ScaleDataUpdateCoordinator:
                 # Count v1 legacy users (empty string reserved for v1 compatibility)
                 if user_id == "":
                     v1_legacy_count += 1
-                # Log loaded history count and range (temporary debugging)
                 history = profile.get(CONF_WEIGHT_HISTORY, [])
                 user_name = profile.get(CONF_USER_NAME, user_id)
-                _LOGGER.info(
-                    "📂 Loaded history for user %s (%s): %d measurements",
+                _LOGGER.debug(
+                    "Loaded history for user %s (%s): %d measurements",
                     user_name,
                     user_id,
                     len(history),
                 )
                 if history:
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "   Range: %s to %s",
                         history[0].get("timestamp", "?"),
                         history[-1].get("timestamp", "?"),
@@ -998,48 +997,18 @@ class ScaleDataUpdateCoordinator:
             history[:] = history[-max_size:]
 
     def _log_user_history(self, user_id: str, context: str) -> None:
-        """Log user's full weight history at DEBUG level for debugging.
-
-        Only logs when debug logging is enabled to avoid cluttering logs.
-
-        Args:
-            user_id: User ID to log history for.
-            context: Description of when this log is being made (e.g., "after adding measurement").
-        """
+        """Log concise history summary for debugging without spamming logs."""
         user_profile = self._user_profiles_by_id.get(user_id)
         if not user_profile:
-            _LOGGER.debug(
-                "📊 Weight history for user %s (%s): USER NOT FOUND",
-                user_id,
-                context,
-            )
+            _LOGGER.debug("History summary skipped: user %s missing (%s)", user_id, context)
             return
 
-        user_name = user_profile.get(CONF_USER_NAME, user_id)
-        # Use normalized history for consistency with sensor attributes
-        history = self.get_user_history(user_id)
-
-        if not history:
-            _LOGGER.debug(
-                "📊 Weight history for user %s (%s): EMPTY (0 measurements)",
-                user_name,
-                context,
-            )
-            return
-
-        # Format history as a readable list
-        history_str = "\n".join(
-            f"  {i+1}. {m['timestamp']}: {m['weight_kg']:.2f} kg"
-            + (f" ({m['impedance_ohm']} Ω)" if "impedance_ohm" in m else "")
-            for i, m in enumerate(history)
-        )
-
+        history = user_profile.get(CONF_WEIGHT_HISTORY, [])
         _LOGGER.debug(
-            "📊 Weight history for user %s (%s): %d measurement(s)\n%s",
-            user_name,
+            "History summary for user %s (%s): %d measurement(s)",
+            user_profile.get(CONF_USER_NAME, user_id),
             context,
             len(history),
-            history_str,
         )
 
     def _update_config_entry(self) -> None:
@@ -1059,26 +1028,7 @@ class ScaleDataUpdateCoordinator:
             )
             return
 
-        # Log what we're about to persist (temporary debugging)
-        for profile in self._user_profiles:
-            user_name = profile.get(CONF_USER_NAME, "Unknown")
-            user_id = profile.get(CONF_USER_ID, "Unknown")
-            history = profile.get(CONF_WEIGHT_HISTORY, [])
-            _LOGGER.info(
-                "💾 Persisting history for user %s (%s): %d measurements",
-                user_name,
-                user_id,
-                len(history),
-            )
-            # Log first and last timestamps for verification
-            if history:
-                _LOGGER.info(
-                    "   Range: %s to %s",
-                    history[0].get("timestamp", "?"),
-                    history[-1].get("timestamp", "?"),
-                )
-
-        # Update the entry with current user profiles
+        # Persist profiles
         new_data = {**entry.data}
         # Persist a deep copy so config entry data doesn't share references
         new_data["user_profiles"] = deepcopy(self._user_profiles)

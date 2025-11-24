@@ -28,7 +28,7 @@ assign_measurement:
 
 reassign_measurement:
   name: Reassign measurement
-  description: Reassign a measurement from one user to another. By default reassigns the newest measurement, or specify a timestamp to reassign a specific measurement.
+  description: Reassign a user's measurement to a different user. If no timestamp is provided, the newest measurement is reassigned.
   fields:
     device_id:
       name: Scale
@@ -52,8 +52,8 @@ reassign_measurement:
       selector:
         text:
     timestamp:
-      name: Timestamp
-      description: The timestamp of the specific measurement to reassign. If not provided, reassigns the newest measurement.
+      name: Timestamp (optional)
+      description: The timestamp of the specific measurement to reassign. If omitted, the most recent measurement will be used.
       required: false
       example: "2025-01-15T10:30:00"
       selector:
