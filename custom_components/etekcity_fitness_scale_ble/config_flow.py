@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import re
 import unicodedata
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import voluptuous as vol
 

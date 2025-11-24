@@ -1720,7 +1720,7 @@ class ScaleDataUpdateCoordinator:
                     type(ex).__name__,
                     ex,
                 )
-            except Exception as ex:
+            except Exception:
                 # Catch unexpected errors and log with full traceback
                 _LOGGER.exception(
                     "Unexpected error calculating body metrics for user_id: %s", user_id
@@ -2215,7 +2215,7 @@ class ScaleDataUpdateCoordinator:
                     type(ex).__name__,
                     ex,
                 )
-            except Exception as ex:
+            except Exception:
                 # Catch unexpected errors and log with full traceback
                 _LOGGER.exception(
                     "Unexpected error recalculating body metrics for user_id: %s",
