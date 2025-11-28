@@ -1826,9 +1826,34 @@ class ScaleDataUpdateCoordinator:
             try:
                 # Determine if this is a single-user or multi-user device
                 if len(users) == 1:
-                    # Personalized notification for single user
+                    # Check if this device is associated with other users (not candidates)
+                    # If so, we need to include the user's name to avoid ambiguity
                     user_id, user_name = users[0]
-                    message = f"{weight_display} at {time_display}. Is this yours?"
+                    other_users_on_device = []
+                    for profile in self._user_profiles:
+                        profile_user_id = profile.get(CONF_USER_ID)
+                        if profile_user_id is None:
+                            continue
+                        # Skip if this is the candidate user
+                        if profile_user_id == user_id:
+                            continue
+                        # Check if this profile has this device configured
+                        profile_mobile_services = profile.get(CONF_MOBILE_NOTIFY_SERVICES, [])
+                        if service_name in profile_mobile_services:
+                            other_users_on_device.append(profile.get(CONF_USER_NAME, "Unknown"))
+
+                    # If device is shared with other users, include name in message/button
+                    if other_users_on_device:
+                        # Device is shared - make it clear which user this is for
+                        message = f"{weight_display} at {time_display}. Is this {user_name}'s?"
+                        button_title = f"Assign to {user_name}"
+                        not_me_title = f"Not {user_name}"
+                    else:
+                        # Device is only for this user - can use generic "Me"
+                        message = f"{weight_display} at {time_display}. Is this yours?"
+                        button_title = "Assign to Me"
+                        not_me_title = "Not Me"
+
                     # Use placeholder for empty string user_id (v1 legacy compatibility)
                     encoded_user_id = (
                         LEGACY_USER_ID_PLACEHOLDER
@@ -1839,11 +1864,11 @@ class ScaleDataUpdateCoordinator:
                     actions = [
                         {
                             "action": f"SCALE_ASSIGN_{encoded_user_id}_{encoded_timestamp}",
-                            "title": "Assign to Me",
+                            "title": button_title,
                         },
                         {
                             "action": f"SCALE_NOT_ME_{encoded_user_id}_{encoded_timestamp}",
-                            "title": "Not Me",
+                            "title": not_me_title,
                         },
                     ]
 
@@ -1853,9 +1878,12 @@ class ScaleDataUpdateCoordinator:
                     }
 
                     _LOGGER.debug(
-                        "Sending personalized notification to %s via %s",
+                        "Sending personalized notification to %s via %s%s",
                         user_name,
                         service_name,
+                        f" (shared device with {', '.join(other_users_on_device)})"
+                        if other_users_on_device
+                        else "",
                     )
                 else:
                     # Multi-user shared device notification
@@ -2046,7 +2074,7 @@ class ScaleDataUpdateCoordinator:
             user_list_items.append("**Candidates:**")
             for user_id, diff, user_name in matching_users:
                 # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                user_id_display = '"" (legacy)' if user_id == "" else f"`{user_id}`"
+                user_id_display = '"" (legacy)' if user_id == "" else user_id
                 user_list_items.append(
                     f"- **{user_name}** ({user_id_display}) — ±{_format_weight(diff, 1)}"
                 )
@@ -2057,7 +2085,7 @@ class ScaleDataUpdateCoordinator:
 
             for user_id, user_name in other_users:
                 # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                user_id_display = '"" (legacy)' if user_id == "" else f"`{user_id}`"
+                user_id_display = '"" (legacy)' if user_id == "" else user_id
                 user_list_items.append(f"- **{user_name}** ({user_id_display})")
 
         user_list_str = "\n".join(user_list_items)
