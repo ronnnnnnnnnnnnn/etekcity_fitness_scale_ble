@@ -1149,8 +1149,13 @@ class ScaleDataUpdateCoordinator:
                     bleak_scanner_backend=scanner,
                 )
 
+                _LOGGER.info(
+                    "📡 Starting scale client (this will listen for BLE advertisements)"
+                )
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
-                _LOGGER.debug("Scale client started successfully")
+                _LOGGER.info(
+                    "✅ Scale client started successfully (now listening for scale)"
+                )
             except asyncio.TimeoutError:
                 _LOGGER.error(
                     "Timeout while starting scale client for %s", self.address
@@ -1188,13 +1193,22 @@ class ScaleDataUpdateCoordinator:
             _LOGGER.exception("Failed to initialize scale client: %s", ex)
             raise
 
-    def _registration_changed(self, _: HaScannerRegistration) -> None:
+    def _registration_changed(self, registration: HaScannerRegistration) -> None:
         """Handle Bluetooth scanner registration changes."""
+        import traceback
+
+        _LOGGER.info(
+            "🔵 BLUETOOTH SCANNER REGISTRATION CHANGED - Source: %s",
+            registration.scanner.source if registration else "Unknown",
+        )
+        _LOGGER.debug(
+            "Registration change stack trace:\n%s", "".join(traceback.format_stack())
+        )
         self._hass.async_create_task(self._async_registration_changed())
 
     async def _async_registration_changed(self) -> None:
         """Handle Bluetooth scanner registration changes asynchronously."""
-        _LOGGER.debug("Bluetooth scanner registration changed, restarting client")
+        _LOGGER.info("🔄 Bluetooth scanner registration changed, restarting client")
         try:
             async with self._lock:
                 await self._async_start()
@@ -1490,8 +1504,8 @@ class ScaleDataUpdateCoordinator:
 
         # Log received measurements
         measurements = list(data.measurements.keys())
-        _LOGGER.debug(
-            "Received data update from scale %s with %d measurements: %s",
+        _LOGGER.info(
+            "⚖️  MEASUREMENT RECEIVED from scale %s with %d measurements: %s",
             self.address,
             len(measurements),
             ", ".join(measurements),
@@ -1529,6 +1543,9 @@ class ScaleDataUpdateCoordinator:
                 weight_kg,
             )
             self._route_to_user(user_id, data, timestamp=measurement_timestamp)
+            _LOGGER.info(
+                "✓ Finished processing measurement update (single user auto-assign)"
+            )
             return
 
         # Run person detection (returns list of candidates: weight matches + users without history)
@@ -1593,6 +1610,8 @@ class ScaleDataUpdateCoordinator:
 
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
+
+        _LOGGER.info("✓ Finished processing measurement update")
 
     def _route_to_user_internal(
         self, user_id: str, data: ScaleData, timestamp: str
@@ -1838,9 +1857,13 @@ class ScaleDataUpdateCoordinator:
                         if profile_user_id == user_id:
                             continue
                         # Check if this profile has this device configured
-                        profile_mobile_services = profile.get(CONF_MOBILE_NOTIFY_SERVICES, [])
+                        profile_mobile_services = profile.get(
+                            CONF_MOBILE_NOTIFY_SERVICES, []
+                        )
                         if service_name in profile_mobile_services:
-                            other_users_on_device.append(profile.get(CONF_USER_NAME, "Unknown"))
+                            other_users_on_device.append(
+                                profile.get(CONF_USER_NAME, "Unknown")
+                            )
 
                     # If device is shared with other users, include name in message/button
                     if other_users_on_device:
