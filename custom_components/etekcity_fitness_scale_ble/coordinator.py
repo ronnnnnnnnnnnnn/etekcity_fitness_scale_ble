@@ -1139,6 +1139,16 @@ class ScaleDataUpdateCoordinator:
             # Get the optimal scanner
             scanner = await self._get_bluetooth_scanner()
 
+            # Enable debug logging for the underlying library (temporary, for troubleshooting)
+            # This only affects etekcity_esf551_ble, not other dependencies
+            library_logger = logging.getLogger("etekcity_esf551_ble")
+            library_logger.setLevel(logging.DEBUG)
+            # Ensure propagation is enabled so messages reach the root logger
+            library_logger.propagate = True
+            _LOGGER.debug(
+                "Enabled debug logging for etekcity_esf551_ble library (temporary)"
+            )
+
             # Initialize client (always use basic client, body metrics calculated per-user)
             try:
                 _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
@@ -1149,13 +1159,8 @@ class ScaleDataUpdateCoordinator:
                     bleak_scanner_backend=scanner,
                 )
 
-                _LOGGER.info(
-                    "📡 Starting scale client (this will listen for BLE advertisements)"
-                )
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
-                _LOGGER.info(
-                    "✅ Scale client started successfully (now listening for scale)"
-                )
+                _LOGGER.debug("Scale client started successfully")
             except asyncio.TimeoutError:
                 _LOGGER.error(
                     "Timeout while starting scale client for %s", self.address
@@ -1197,10 +1202,6 @@ class ScaleDataUpdateCoordinator:
         """Handle Bluetooth scanner registration changes."""
         import traceback
 
-        _LOGGER.info(
-            "🔵 BLUETOOTH SCANNER REGISTRATION CHANGED - Source: %s",
-            registration.scanner.source if registration else "Unknown",
-        )
         _LOGGER.debug(
             "Registration change stack trace:\n%s", "".join(traceback.format_stack())
         )
@@ -1208,7 +1209,7 @@ class ScaleDataUpdateCoordinator:
 
     async def _async_registration_changed(self) -> None:
         """Handle Bluetooth scanner registration changes asynchronously."""
-        _LOGGER.info("🔄 Bluetooth scanner registration changed, restarting client")
+        _LOGGER.debug("Bluetooth scanner registration changed, restarting client")
         try:
             async with self._lock:
                 await self._async_start()
@@ -1504,8 +1505,8 @@ class ScaleDataUpdateCoordinator:
 
         # Log received measurements
         measurements = list(data.measurements.keys())
-        _LOGGER.info(
-            "⚖️  MEASUREMENT RECEIVED from scale %s with %d measurements: %s",
+        _LOGGER.debug(
+            "MEASUREMENT RECEIVED from scale %s with %d measurements: %s",
             self.address,
             len(measurements),
             ", ".join(measurements),
@@ -1543,8 +1544,8 @@ class ScaleDataUpdateCoordinator:
                 weight_kg,
             )
             self._route_to_user(user_id, data, timestamp=measurement_timestamp)
-            _LOGGER.info(
-                "✓ Finished processing measurement update (single user auto-assign)"
+            _LOGGER.debug(
+                "Finished processing measurement update (single user auto-assign)"
             )
             return
 
@@ -1611,7 +1612,7 @@ class ScaleDataUpdateCoordinator:
             # Notify diagnostic sensors about pending measurements update
             self._notify_diagnostic_sensors()
 
-        _LOGGER.info("✓ Finished processing measurement update")
+        _LOGGER.debug("Finished processing measurement update")
 
     def _route_to_user_internal(
         self, user_id: str, data: ScaleData, timestamp: str

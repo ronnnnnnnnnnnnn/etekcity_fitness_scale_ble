@@ -539,7 +539,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         break
 
                 if not assigned:
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "Could not assign measurement %s to user %s - "
                         "measurement may have been already assigned or expired",
                         timestamp,
