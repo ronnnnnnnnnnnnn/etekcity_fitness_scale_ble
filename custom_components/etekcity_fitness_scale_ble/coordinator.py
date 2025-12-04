@@ -1275,7 +1275,66 @@ class ScaleDataUpdateCoordinator:
                 finally:
                     self._client = None
 
+            # Clear all pending measurement notifications (they won't persist across reload)
+            await self._clear_all_pending_notifications()
+
         _LOGGER.debug("ScaleDataUpdateCoordinator stopped successfully")
+
+    async def _clear_all_pending_notifications(self) -> None:
+        """Clear all notifications for pending measurements.
+
+        Called during unload/stop since pending measurements don't persist
+        across reloads, so their notifications should be cleaned up.
+        """
+        if not self._pending_measurements:
+            return
+
+        _LOGGER.debug(
+            "Clearing notifications for %d pending measurements",
+            len(self._pending_measurements),
+        )
+
+        for timestamp, pending_data in self._pending_measurements.items():
+            # Dismiss the persistent notification
+            try:
+                persistent_notification.dismiss(
+                    self._hass,
+                    notification_id=f"etekcity_scale_{self.address}_{timestamp}",
+                )
+            except Exception as ex:
+                _LOGGER.warning(
+                    "Error dismissing persistent notification for %s: %s",
+                    timestamp,
+                    ex,
+                )
+
+            # Dismiss all mobile notifications for this measurement
+            notified_services = pending_data.get("notified_mobile_services", [])
+            tag = f"scale_measurement_{timestamp}"
+            for user_id, service_name in notified_services:
+                try:
+                    await self._hass.services.async_call(
+                        "notify",
+                        service_name,
+                        {"message": "clear_notification", "data": {"tag": tag}},
+                    )
+                    _LOGGER.debug(
+                        "Dismissed mobile notification for user %s on %s (tag: %s)",
+                        user_id,
+                        service_name,
+                        tag,
+                    )
+                except Exception as ex:
+                    _LOGGER.warning(
+                        "Error dismissing mobile notification for %s on %s: %s",
+                        user_id,
+                        service_name,
+                        ex,
+                    )
+
+        # Clear the pending measurements dict
+        self._pending_measurements.clear()
+        self._ambiguous_notifications.clear()
 
     @callback
     def add_listener(
