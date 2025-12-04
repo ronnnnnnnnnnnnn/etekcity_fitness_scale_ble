@@ -1139,16 +1139,6 @@ class ScaleDataUpdateCoordinator:
             # Get the optimal scanner
             scanner = await self._get_bluetooth_scanner()
 
-            # Enable debug logging for the underlying library (temporary, for troubleshooting)
-            # This only affects etekcity_esf551_ble, not other dependencies
-            library_logger = logging.getLogger("etekcity_esf551_ble")
-            library_logger.setLevel(logging.DEBUG)
-            # Ensure propagation is enabled so messages reach the root logger
-            library_logger.propagate = True
-            _LOGGER.debug(
-                "Enabled debug logging for etekcity_esf551_ble library (temporary)"
-            )
-
             # Initialize client (always use basic client, body metrics calculated per-user)
             try:
                 _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
@@ -1157,6 +1147,7 @@ class ScaleDataUpdateCoordinator:
                     self.update_listeners,
                     self._display_unit,
                     bleak_scanner_backend=scanner,
+                    logger=_LOGGER.getChild("etekcity_esf551_ble"),
                 )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
