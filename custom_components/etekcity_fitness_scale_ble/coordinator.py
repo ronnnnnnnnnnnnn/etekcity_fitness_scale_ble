@@ -44,6 +44,7 @@ from homeassistant.const import UnitOfMass
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
+    CONF_ENABLE_LIBRARY_LOGGING,
     CONF_HISTORY_RETENTION_DAYS,
     CONF_MAX_HISTORY_SIZE,
     CONF_MOBILE_NOTIFY_SERVICES,
@@ -952,6 +953,21 @@ class ScaleDataUpdateCoordinator:
 
         return entry.data.get(CONF_MAX_HISTORY_SIZE, MAX_HISTORY_SIZE)
 
+    def _is_library_logging_enabled(self) -> bool:
+        """Check if library logging is enabled in config entry.
+
+        Returns:
+            True if library logging is enabled, False otherwise (default).
+        """
+        if not self._config_entry_id:
+            return False
+
+        entry = self._hass.config_entries.async_get_entry(self._config_entry_id)
+        if not entry:
+            return False
+
+        return entry.data.get(CONF_ENABLE_LIBRARY_LOGGING, False)
+
     def _cleanup_history(self, user_profile: dict) -> None:
         """Remove old and excess measurements from history.
 
@@ -1142,12 +1158,19 @@ class ScaleDataUpdateCoordinator:
             # Initialize client (always use basic client, body metrics calculated per-user)
             try:
                 _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
+
+                # Conditionally pass logger based on advanced settings
+                library_logger = None
+                if self._is_library_logging_enabled():
+                    library_logger = _LOGGER.getChild("etekcity_esf551_ble")
+                    _LOGGER.debug("Library logging enabled, passing child logger")
+
                 self._client = EtekcitySmartFitnessScale(
                     self.address,
                     self.update_listeners,
                     self._display_unit,
                     bleak_scanner_backend=scanner,
-                    logger=_LOGGER.getChild("etekcity_esf551_ble"),
+                    logger=library_logger,
                 )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)

@@ -49,7 +49,8 @@
                     "add_user": "Add User Profile",
                     "edit_user": "Edit User Profile",
                     "remove_user": "Remove User Profile",
-                    "scale_settings": "Scale Settings"
+                    "scale_settings": "Scale Settings",
+                    "advanced_settings": "Advanced Settings"
                 }
             },
             "add_user": {
@@ -114,15 +115,23 @@
             },
             "scale_settings": {
                 "title": "Scale Settings",
-                "description": "Configure scale display unit and history limits",
+                "description": "Configure scale display unit",
                 "data": {
-                    "scale_display_unit": "Scale Display Unit",
+                    "scale_display_unit": "Scale Display Unit"
+                }
+            },
+            "advanced_settings": {
+                "title": "Advanced Settings",
+                "description": "Configure history limits and debugging options",
+                "data": {
                     "history_retention_days": "History Retention (days)",
-                    "max_history_size": "Max History Size (measurements)"
+                    "max_history_size": "Max History Size (measurements)",
+                    "enable_library_logging": "Enable Library Logging"
                 },
                 "data_description": {
                     "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",
-                    "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements."
+                    "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements.",
+                    "enable_library_logging": "When enabled, logs from the underlying etekcity_esf551_ble library will be included in the integration's logs. Useful for troubleshooting BLE communication issues."
                 }
             }
         },

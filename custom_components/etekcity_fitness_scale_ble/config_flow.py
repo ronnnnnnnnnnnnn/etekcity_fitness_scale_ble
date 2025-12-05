@@ -27,6 +27,7 @@ from .const import (
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
     CONF_CREATED_AT,
+    CONF_ENABLE_LIBRARY_LOGGING,
     CONF_FEET,
     CONF_HEIGHT,
     CONF_HISTORY_RETENTION_DAYS,
@@ -599,7 +600,7 @@ class ScaleOptionsFlow(OptionsFlow):
     ) -> FlowResult:
         """Manage the options."""
         # Build menu options
-        menu_options = ["add_user", "scale_settings"]
+        menu_options = ["add_user", "scale_settings", "advanced_settings"]
         if self.user_profiles:
             menu_options.insert(1, "edit_user")
             menu_options.insert(2, "remove_user")
@@ -1208,8 +1209,6 @@ class ScaleOptionsFlow(OptionsFlow):
             new_data = {
                 **self.config_entry.data,
                 CONF_SCALE_DISPLAY_UNIT: user_input[CONF_SCALE_DISPLAY_UNIT],
-                CONF_HISTORY_RETENTION_DAYS: user_input[CONF_HISTORY_RETENTION_DAYS],
-                CONF_MAX_HISTORY_SIZE: user_input[CONF_MAX_HISTORY_SIZE],
             }
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=new_data
@@ -1232,6 +1231,40 @@ class ScaleOptionsFlow(OptionsFlow):
                             UnitOfMass.POUNDS: "Imperial (lbs)",
                         }
                     ),
+                }
+            ),
+        )
+
+    async def async_step_advanced_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Change advanced settings."""
+        if user_input is not None:
+            # Update settings
+            new_data = {
+                **self.config_entry.data,
+                CONF_HISTORY_RETENTION_DAYS: user_input[CONF_HISTORY_RETENTION_DAYS],
+                CONF_MAX_HISTORY_SIZE: user_input[CONF_MAX_HISTORY_SIZE],
+                CONF_ENABLE_LIBRARY_LOGGING: user_input[CONF_ENABLE_LIBRARY_LOGGING],
+            }
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=new_data
+            )
+
+            # Reload the integration
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+            return self.async_create_entry(title="", data={})
+
+        # Get current values
+        current_library_logging = self.config_entry.data.get(
+            CONF_ENABLE_LIBRARY_LOGGING, False
+        )
+
+        return self.async_show_form(
+            step_id="advanced_settings",
+            data_schema=vol.Schema(
+                {
                     vol.Required(
                         CONF_HISTORY_RETENTION_DAYS,
                         default=self.history_retention_days,
@@ -1246,6 +1279,10 @@ class ScaleOptionsFlow(OptionsFlow):
                         vol.Coerce(int),
                         vol.Range(min=10, max=1000),
                     ),
+                    vol.Required(
+                        CONF_ENABLE_LIBRARY_LOGGING,
+                        default=current_library_logging,
+                    ): bool,
                 }
             ),
         )
