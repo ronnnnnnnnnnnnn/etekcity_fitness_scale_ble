@@ -2229,11 +2229,16 @@ class ScaleDataUpdateCoordinator:
         # Track this ambiguous notification
         self._ambiguous_notifications.add(timestamp)
 
+        notification_id = f"etekcity_scale_{self.address}_{timestamp}"
+        _LOGGER.debug(
+            "Creating persistent notification with ID: %s",
+            notification_id,
+        )
         persistent_notification.create(
             self._hass,
             message,
             title=f"{device_name}: Choose User",
-            notification_id=f"etekcity_scale_{self.address}_{timestamp}",
+            notification_id=notification_id,
         )
 
         # Update diagnostic sensors to reflect new pending measurement
@@ -2410,9 +2415,14 @@ class ScaleDataUpdateCoordinator:
         self._ambiguous_notifications.discard(timestamp)
 
         # Dismiss the persistent notification
+        notification_id = f"etekcity_scale_{self.address}_{timestamp}"
+        _LOGGER.debug(
+            "Dismissing persistent notification with ID: %s",
+            notification_id,
+        )
         persistent_notification.dismiss(
             self._hass,
-            notification_id=f"etekcity_scale_{self.address}_{timestamp}",
+            notification_id=notification_id,
         )
 
         # Dismiss all mobile notifications for this measurement

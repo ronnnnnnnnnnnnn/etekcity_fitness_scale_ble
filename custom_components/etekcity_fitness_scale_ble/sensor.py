@@ -514,7 +514,7 @@ class ScaleWeightSensor(ScaleSensor):
         }
 
         # Add weight history for this user (formatted for display)
-        if self._user_id:
+        if self._user_id is not None:
             attrs["weight_history"] = self._coordinator.get_user_history_for_display(
                 self._user_id
             )
@@ -696,7 +696,7 @@ class ScaleUserWeightSensor(ScaleUserSensor):
         }
 
         # Add weight history for this user (formatted for display)
-        if self._user_id:
+        if self._user_id is not None:
             attrs["weight_history"] = self._coordinator.get_user_history_for_display(
                 self._user_id
             )

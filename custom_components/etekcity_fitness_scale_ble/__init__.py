@@ -74,90 +74,93 @@ SERVICE_REMOVE_MEASUREMENT_SCHEMA = vol.Schema(
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate old config entries to new format."""
+    """Migrate old config entries to new format.
 
+    Note: We track migration state locally because entry.version is not updated
+    immediately after async_update_entry() - it only reflects the stored version
+    after a reload. This ensures all sequential migrations run correctly.
+    """
     _LOGGER.debug(
         "Checking if migration needed for config entry version %s", entry.version
     )
 
-    if entry.version == 1:
+    # Track current version locally (entry.version won't update after async_update_entry)
+    current_version = entry.version
+    new_data = {**entry.data}
+    show_v2_notification = False
+
+    # --- Migration v1 → v2: Multi-user support ---
+    if current_version < 2:
         _LOGGER.info("Migrating config entry from version 1 to version 2")
 
         # Copy old data
         old_data = {**entry.data}
 
-        # Build new data structure
-        new_data = {
-            CONF_SCALE_DISPLAY_UNIT: old_data.pop(
-                CONF_UNIT_SYSTEM, UnitOfMass.KILOGRAMS
-            ),
-            CONF_USER_PROFILES: [],
-        }
-
-        # If old config had body metrics enabled, create a default user profile
-        if old_data.get(CONF_CALC_BODY_METRICS, False):
-            _LOGGER.debug(
-                "Creating default user profile from legacy body metrics config"
+        # Safety check: If data already has v2+ structure, skip migration
+        # This prevents data loss if migration is called on already-migrated entry
+        if CONF_USER_PROFILES in old_data:
+            _LOGGER.warning(
+                "Config entry version is %s but data already has v2 structure "
+                "(CONF_USER_PROFILES exists). Skipping v1→v2 migration to prevent data loss.",
+                current_version,
             )
-
-            # Use empty string as user_id to preserve entity IDs
-            # This ensures sensor.etekcity_fitness_scale_ble_weight stays the same
-            default_user = {
-                CONF_USER_ID: "",  # Empty string preserves entity IDs from v1
-                CONF_USER_NAME: "Default User",
-                CONF_PERSON_ENTITY: None,
-                CONF_BODY_METRICS_ENABLED: True,
-                CONF_SEX: old_data.get(CONF_SEX),
-                CONF_BIRTHDATE: old_data.get(CONF_BIRTHDATE),
-                CONF_HEIGHT: old_data.get(CONF_HEIGHT),
-                CONF_CREATED_AT: datetime.now().isoformat(),
-                CONF_UPDATED_AT: datetime.now().isoformat(),
-            }
-
-            new_data[CONF_USER_PROFILES] = [default_user]
-            _LOGGER.debug("Default user profile created with body metrics enabled")
+            new_data = old_data
+            current_version = 2
         else:
-            _LOGGER.debug(
-                "Creating default user profile (no body metrics in legacy config)"
-            )
-
-            # Even without body metrics, create a default user to ensure sensors exist
-            default_user = {
-                CONF_USER_ID: "",  # Empty string preserves entity IDs from v1
-                CONF_USER_NAME: "Default User",
-                CONF_PERSON_ENTITY: None,
-                CONF_BODY_METRICS_ENABLED: False,
-                CONF_CREATED_AT: datetime.now().isoformat(),
-                CONF_UPDATED_AT: datetime.now().isoformat(),
+            # Build new data structure (replaces old format entirely)
+            new_data = {
+                CONF_SCALE_DISPLAY_UNIT: old_data.get(
+                    CONF_UNIT_SYSTEM, UnitOfMass.KILOGRAMS
+                ),
+                CONF_USER_PROFILES: [],
             }
 
-            new_data[CONF_USER_PROFILES] = [default_user]
+            # If old config had body metrics enabled, create a default user profile
+            if old_data.get(CONF_CALC_BODY_METRICS, False):
+                _LOGGER.debug(
+                    "Creating default user profile from legacy body metrics config"
+                )
 
-        # Update the entry
-        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
-        _LOGGER.info("Migration of config entry to version 2 completed successfully")
+                # Use empty string as user_id to preserve entity IDs
+                # This ensures sensor.etekcity_fitness_scale_ble_weight stays the same
+                default_user = {
+                    CONF_USER_ID: "",  # Empty string preserves entity IDs from v1
+                    CONF_USER_NAME: "Default User",
+                    CONF_PERSON_ENTITY: None,
+                    CONF_BODY_METRICS_ENABLED: True,
+                    CONF_SEX: old_data.get(CONF_SEX),
+                    CONF_BIRTHDATE: old_data.get(CONF_BIRTHDATE),
+                    CONF_HEIGHT: old_data.get(CONF_HEIGHT),
+                    CONF_CREATED_AT: datetime.now().isoformat(),
+                    CONF_UPDATED_AT: datetime.now().isoformat(),
+                }
 
-        # Create a persistent notification to inform the user about the upgrade
-        from homeassistant.components import persistent_notification
+                new_data[CONF_USER_PROFILES] = [default_user]
+                _LOGGER.debug("Default user profile created with body metrics enabled")
+            else:
+                _LOGGER.debug(
+                    "Creating default user profile (no body metrics in legacy config)"
+                )
 
-        persistent_notification.create(
-            hass,
-            "Your Etekcity Fitness Scale has been upgraded to support multiple users!\n\n"
-            "Your existing sensors and historical data have been preserved under a default user profile.\n\n"
-            "You can now:\n"
-            "- Rename the default user\n"
-            "- Link it to a person entity\n"
-            "- Add additional users\n\n"
-            "Go to **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure** to manage user profiles.",
-            title="Etekcity Scale: Multi-User Support Enabled",
-            notification_id="etekcity_scale_migration_v2",
-        )
+                # Even without body metrics, create a default user to ensure sensors exist
+                default_user = {
+                    CONF_USER_ID: "",  # Empty string preserves entity IDs from v1
+                    CONF_USER_NAME: "Default User",
+                    CONF_PERSON_ENTITY: None,
+                    CONF_BODY_METRICS_ENABLED: False,
+                    CONF_CREATED_AT: datetime.now().isoformat(),
+                    CONF_UPDATED_AT: datetime.now().isoformat(),
+                }
 
-    if entry.version == 2:
+                new_data[CONF_USER_PROFILES] = [default_user]
+
+            current_version = 2
+            show_v2_notification = True
+            _LOGGER.info("Migration to version 2 prepared successfully")
+
+    # --- Migration v2 → v3: Mobile notifications and weight history ---
+    if current_version < 3:
         _LOGGER.info("Migrating config entry from version 2 to version 3")
-
-        # Copy existing data
-        new_data = {**entry.data}
 
         # Add mobile_notify_services and weight_history fields to each user profile
         user_profiles = new_data.get(CONF_USER_PROFILES, [])
@@ -176,22 +179,47 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     user_profile.get(CONF_USER_NAME, "unknown"),
                 )
 
-        # Update the entry
-        hass.config_entries.async_update_entry(entry, data=new_data, version=3)
-        _LOGGER.info("Migration of config entry to version 3 completed successfully")
+        current_version = 3
+        _LOGGER.info("Migration to version 3 prepared successfully")
+
+    # Save all migrations at once with final version
+    if entry.version != current_version:
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, version=current_version
+        )
+        _LOGGER.info(
+            "Config entry migration completed: v%s → v%s",
+            entry.version,
+            current_version,
+        )
+
+    # Show notification after save (only for v1→v2 upgrade)
+    if show_v2_notification:
+        from homeassistant.components import persistent_notification
+
+        persistent_notification.create(
+            hass,
+            "Your Etekcity Fitness Scale has been upgraded to support multiple users!\n\n"
+            "Your existing sensors and historical data have been preserved under a default user profile.\n\n"
+            "You can now:\n"
+            "- Rename the default user\n"
+            "- Link it to a person entity\n"
+            "- Add additional users\n\n"
+            "Go to **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure** to manage user profiles.",
+            title="Etekcity Scale: Multi-User Support Enabled",
+            notification_id="etekcity_scale_migration_v2",
+        )
 
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up scale from a config entry."""
+    """Set up scale from a config entry.
 
-    # Migrate config entry if needed
-    if entry.version < 3:
-        if not await async_migrate_entry(hass, entry):
-            _LOGGER.error("Migration failed for config entry")
-            return False
-
+    Note: async_migrate_entry is called automatically by Home Assistant before this
+    function when the entry version is less than the current version. We don't need
+    to call it again here.
+    """
     hass.data.setdefault(DOMAIN, {})
     address = entry.unique_id
 
