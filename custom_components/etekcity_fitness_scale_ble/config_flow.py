@@ -1072,6 +1072,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 **current_user,
                 CONF_USER_NAME: basic_info[CONF_USER_NAME],
                 CONF_PERSON_ENTITY: basic_info.get(CONF_PERSON_ENTITY),
+                CONF_MOBILE_NOTIFY_SERVICES: basic_info.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                ),
                 CONF_BODY_METRICS_ENABLED: True,
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
