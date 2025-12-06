@@ -204,8 +204,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "You can now:\n"
             "- Rename the default user\n"
             "- Link it to a person entity\n"
-            "- Add additional users\n\n"
-            "Go to **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure** to manage user profiles.",
+            "- Add additional users\n"
+            "- Remove the default user (once you've added other users)\n\n"
+            "Go to **Device Settings** (⚙️) on the integration card to manage user profiles.",
             title="Etekcity Scale: Multi-User Support Enabled",
             notification_id="etekcity_scale_migration_v2",
         )
@@ -269,6 +270,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         return device_id
 
+    def _resolve_user_id(user_id_input: str | None) -> str:
+        """Resolve user_id input, mapping quotes or whitespace to empty string.
+
+        Args:
+            user_id_input: The user_id from service call
+
+        Returns:
+            The actual user_id (empty string for legacy user, or the input value)
+        """
+        if not user_id_input:
+            return ""
+
+        val = user_id_input.strip("\"\' ")
+
+        return val
+
+    def _format_user_list(profiles: list[dict]) -> str:
+        """Format user profiles for display in error messages."""
+        user_list_items = []
+        for p in profiles:
+            profile_user_id = p.get(CONF_USER_ID)
+            if profile_user_id is not None:
+                user_name = p.get(CONF_USER_NAME, "Unknown")
+                if profile_user_id == "":
+                    user_list_items.append(
+                        f'{user_name} (leave blank or use "")'
+                    )
+                else:
+                    user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
+        return ", ".join(user_list_items) if user_list_items else "none"
+
     # Register services
     async def handle_assign_measurement(call: ServiceCall) -> None:
         """Handle the assign_measurement service call."""
@@ -277,13 +309,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device_id = _get_single_device_id(call)
 
         timestamp = call.data[ATTR_TIMESTAMP]
-        user_id = call.data[ATTR_USER_ID]
+        # Resolve user_id: "default" keyword maps to empty string (legacy user)
+        user_id = _resolve_user_id(call.data.get(ATTR_USER_ID))
 
         _LOGGER.debug(
             "Service call assign_measurement on device %s timestamp=%s user_id=%s",
             device_id,
             timestamp,
-            user_id,
+            repr(user_id),  # Use repr to show empty string clearly in logs
         )
 
         coord = _get_coordinator_for_device(device_id)
@@ -296,28 +329,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if p.get(CONF_USER_ID) is not None
         ]
         if user_id not in valid_user_ids:
-            # Provide helpful error with available users
-            # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
-            user_list_items = []
-            for p in coord.get_user_profiles():
-                profile_user_id = p.get(CONF_USER_ID)
-                if profile_user_id is not None:
-                    user_name = p.get(CONF_USER_NAME, "Unknown")
-                    # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                    if profile_user_id == "":
-                        user_list_items.append(
-                            f'{user_name} (use empty string "" as user_id)'
-                        )
-                    else:
-                        user_list_items.append(
-                            f"{user_name} (user_id: {profile_user_id})"
-                        )
-            available_users = ", ".join(user_list_items) if user_list_items else "none"
-            raise HomeAssistantError(
-                f"User '{user_id}' not found for this scale. "
-                f"Please check the user ID and try again. "
-                f"Available users: {available_users}"
-            )
+            available_users = _format_user_list(coord.get_user_profiles())
+            if user_id == "":
+                raise HomeAssistantError(
+                    f"No default user found for this scale. "
+                    f"Please specify a user_id. "
+                    f"Available users: {available_users}"
+                )
+            else:
+                raise HomeAssistantError(
+                    f"User '{user_id}' not found for this scale. "
+                    f"Please check the user ID and try again. "
+                    f"Available users: {available_users}"
+                )
 
         # Validate timestamp exists in pending measurements
         pending_measurements = coord.get_pending_measurements()
@@ -349,8 +373,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         device_id = _get_single_device_id(call)
 
-        from_user_id = call.data[ATTR_FROM_USER_ID]
-        to_user_id = call.data[ATTR_TO_USER_ID]
+        # Resolve user_ids: "default" keyword maps to empty string (legacy user)
+        from_user_id = _resolve_user_id(call.data.get(ATTR_FROM_USER_ID))
+        to_user_id = _resolve_user_id(call.data.get(ATTR_TO_USER_ID))
         timestamp = call.data.get(ATTR_TIMESTAMP)  # Optional
 
         coord = _get_coordinator_for_device(device_id)
@@ -362,31 +387,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for p in coord.get_user_profiles()
             if p.get(CONF_USER_ID) is not None
         ]
-        for uid in (from_user_id, to_user_id):
+        for uid, field_name in [
+            (from_user_id, "from_user_id"),
+            (to_user_id, "to_user_id"),
+        ]:
             if uid not in valid_user_ids:
-                # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
-                user_list_items = []
-                for p in coord.get_user_profiles():
-                    profile_user_id = p.get(CONF_USER_ID)
-                    if profile_user_id is not None:
-                        user_name = p.get(CONF_USER_NAME, "Unknown")
-                        # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                        if profile_user_id == "":
-                            user_list_items.append(
-                                f'{user_name} (use empty string "" as user_id)'
-                            )
-                        else:
-                            user_list_items.append(
-                                f"{user_name} (user_id: {profile_user_id})"
-                            )
-                available_users = (
-                    ", ".join(user_list_items) if user_list_items else "none"
-                )
-                raise HomeAssistantError(
-                    f"User '{uid}' not found for this scale. "
-                    f"Please check the user ID and try again. "
-                    f"Available users: {available_users}"
-                )
+                available_users = _format_user_list(coord.get_user_profiles())
+                if uid == "":
+                    raise HomeAssistantError(
+                        f"No default user found for this scale ({field_name}). "
+                        f"Please specify a user_id. "
+                        f"Available users: {available_users}"
+                    )
+                else:
+                    raise HomeAssistantError(
+                        f"User '{uid}' not found for this scale ({field_name}). "
+                        f"Please check the user ID and try again. "
+                        f"Available users: {available_users}"
+                    )
 
         if not coord.reassign_user_measurement(from_user_id, to_user_id, timestamp):
             if timestamp:
@@ -406,7 +424,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         device_id = _get_single_device_id(call)
 
-        user_id = call.data[ATTR_USER_ID]
+        user_id = _resolve_user_id(call.data.get(ATTR_USER_ID))
         timestamp = call.data.get(ATTR_TIMESTAMP)  # Optional
         coord = _get_coordinator_for_device(device_id)
 
@@ -418,27 +436,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if p.get(CONF_USER_ID) is not None
         ]
         if user_id not in valid_user_ids:
-            # Note: Must check 'is not None' to include empty string (legacy v1 user_id)
-            user_list_items = []
-            for p in coord.get_user_profiles():
-                profile_user_id = p.get(CONF_USER_ID)
-                if profile_user_id is not None:
-                    user_name = p.get(CONF_USER_NAME, "Unknown")
-                    # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                    if profile_user_id == "":
-                        user_list_items.append(
-                            f'{user_name} (use empty string "" as user_id)'
-                        )
-                    else:
-                        user_list_items.append(
-                            f"{user_name} (user_id: {profile_user_id})"
-                        )
-            available_users = ", ".join(user_list_items) if user_list_items else "none"
-            raise HomeAssistantError(
-                f"User '{user_id}' not found for this scale. "
-                f"Please check the user ID and try again. "
-                f"Available users: {available_users}"
-            )
+            available_users = _format_user_list(coord.get_user_profiles())
+            if user_id == "":
+                raise HomeAssistantError(
+                    f"No default user found for this scale. "
+                    f"Please specify a user_id. "
+                    f"Available users: {available_users}"
+                )
+            else:
+                raise HomeAssistantError(
+                    f"User '{user_id}' not found for this scale. "
+                    f"Please check the user ID and try again. "
+                    f"Available users: {available_users}"
+                )
 
         if not coord.remove_user_measurement(user_id, timestamp):
             if timestamp:

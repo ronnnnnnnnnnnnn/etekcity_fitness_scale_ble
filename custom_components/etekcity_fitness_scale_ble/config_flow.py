@@ -952,8 +952,9 @@ class ScaleOptionsFlow(OptionsFlow):
                         _LOGGER.debug("Removing entity %s", entity_id)
                         entity_reg.async_remove(entity_id)
 
-            if body_metrics_enabled and not currently_enabled:
-                # Enabling body metrics - store basic info and proceed to body metrics step
+            if body_metrics_enabled:
+                # Enabling or keeping body metrics enabled - proceed to body metrics step
+                # This allows editing existing body metrics as well
                 self.context["edit_user_input"] = user_input
                 return await self.async_step_edit_user_body_metrics()
 

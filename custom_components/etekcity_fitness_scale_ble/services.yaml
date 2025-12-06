@@ -20,8 +20,11 @@ assign_measurement:
         text:
     user_id:
       name: User ID
-      description: The unique ID of the user to assign the measurement to.
+      description: >-
+        The unique ID of the user to assign the measurement to.
+        Leave the default space for the default user.
       required: true
+      default: " "
       example: "jane"
       selector:
         text:
@@ -39,15 +42,21 @@ reassign_measurement:
           integration: etekcity_fitness_scale_ble
     from_user_id:
       name: From User ID
-      description: The unique ID of the user to take the measurement from.
+      description: >-
+        The unique ID of the user to take the measurement from.
+        Leave the default space for the default user.
       required: true
+      default: " "
       example: "john2"
       selector:
         text:
     to_user_id:
       name: To User ID
-      description: The unique ID of the user to assign the measurement to.
+      description: >-
+        The unique ID of the user to assign the measurement to.
+        Leave the default space for the default user.
       required: true
+      default: " "
       example: "jane"
       selector:
         text:
@@ -72,8 +81,11 @@ remove_measurement:
           integration: etekcity_fitness_scale_ble
     user_id:
       name: User ID
-      description: The unique ID of the user to remove the measurement from.
+      description: >-
+        The unique ID of the user to remove the measurement from.
+        Leave the default space for the default user.
       required: true
+      default: " "
       example: "john2"
       selector:
         text:

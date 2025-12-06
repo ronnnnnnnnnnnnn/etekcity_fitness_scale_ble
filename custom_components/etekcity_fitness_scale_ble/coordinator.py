@@ -2170,8 +2170,7 @@ class ScaleDataUpdateCoordinator:
         if matching_users:
             user_list_items.append("**Candidates:**")
             for user_id, diff, user_name in matching_users:
-                # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                user_id_display = '"" (legacy)' if user_id == "" else user_id
+                user_id_display = '""' if user_id == "" else user_id
                 user_list_items.append(
                     f"- **{user_name}** ({user_id_display}) — ±{_format_weight(diff, 1)}"
                 )
@@ -2181,8 +2180,7 @@ class ScaleDataUpdateCoordinator:
                 user_list_items.append("**Candidates:**")
 
             for user_id, user_name in other_users:
-                # Format user_id for display (empty string shows as "(legacy)" for clarity)
-                user_id_display = '"" (legacy)' if user_id == "" else user_id
+                user_id_display = '""' if user_id == "" else user_id
                 user_list_items.append(f"- **{user_name}** ({user_id_display})")
 
         user_list_str = "\n".join(user_list_items)
