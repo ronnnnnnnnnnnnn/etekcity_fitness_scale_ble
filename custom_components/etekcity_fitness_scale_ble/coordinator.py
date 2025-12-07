@@ -2175,13 +2175,10 @@ class ScaleDataUpdateCoordinator:
                 "Notification called with single candidate - coordinator should have auto-assigned."
             )
 
-
         # Continue with notification creation for multiple candidates
         elif total_candidates == 0:
             # Edge case: shouldn't happen but log if it does
-            _LOGGER.error(
-                "Notification called with zero candidates."
-            )
+            _LOGGER.error("Notification called with zero candidates.")
             return
 
         # Build the user list for the notification message
