@@ -2177,22 +2177,15 @@ class ScaleDataUpdateCoordinator:
         # Single candidates are auto-assigned in update_listeners() before notification is created
         if total_candidates == 1:
             _LOGGER.warning(
-                "Notification called with single candidate - coordinator should have auto-assigned. "
-                "This indicates a logic error in update_listeners()."
+                "Notification called with single candidate - coordinator should have auto-assigned."
             )
-            # This code path should be unreachable, but handle gracefully if it occurs
-            return
 
-        # Assert we have multiple candidates (sanity check for development)
-        assert (
-            total_candidates > 1
-        ), f"Notification should only be created for multiple candidates, got {total_candidates}"
 
         # Continue with notification creation for multiple candidates
-        if total_candidates == 0:
+        elif total_candidates == 0:
             # Edge case: shouldn't happen but log if it does
             _LOGGER.error(
-                "Notification called with zero candidates - this should never occur"
+                "Notification called with zero candidates."
             )
             return
 
