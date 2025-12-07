@@ -1520,7 +1520,7 @@ class ScaleDataUpdateCoordinator:
                 tag = f"scale_measurement_{oldest_timestamp}"
 
                 async def _safe_clear_notification(
-                    service: str, notification_tag: str
+                    service: str, notification_tag: str, notification_user_id: str
                 ) -> None:
                     """Safely clear notification with error handling."""
                     try:
@@ -1534,7 +1534,7 @@ class ScaleDataUpdateCoordinator:
                         )
                         _LOGGER.debug(
                             "Dismissed mobile notification for user %s on %s (tag: %s)",
-                            user_id,
+                            notification_user_id,
                             service,
                             notification_tag,
                         )
@@ -1547,7 +1547,7 @@ class ScaleDataUpdateCoordinator:
                         )
 
                 self._hass.async_create_task(
-                    _safe_clear_notification(service_name, tag)
+                    _safe_clear_notification(service_name, tag, user_id)
                 )
 
             del self._pending_measurements[oldest_timestamp]
