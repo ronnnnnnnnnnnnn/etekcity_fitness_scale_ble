@@ -8,8 +8,7 @@
   "bluetooth": [
     {
       "connectable": true,
-      "manufacturer_id": 1744,
-      "local_name": "Etekcity *Fitness *Scale*"
+      "manufacturer_id": 1744
     }
   ],
   "codeowners": [
@@ -23,6 +22,6 @@
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues",
-  "requirements": ["etekcity_esf551_ble==0.3.1"],
-  "version": "0.3.6"
+  "requirements": ["etekcity_esf551_ble==0.3.9"],
+  "version": "0.3.8"
 }

@@ -1,54 +1,208 @@
 {
     "config": {
-        "abort": {
-            "already_configured": "Device is already configured",
-            "already_in_progress": "Configuration flow is already in progress",
-            "no_devices_found": "No devices found on the network",
-            "reconfigure_successful": "Re-configuration was successful"
+        "flow_title": "{name}",
+        "step": {
+            "user": {
+                "description": "Choose a device to set up",
+                "data": {
+                    "address": "Device",
+                    "scale_display_unit": "Scale Display Unit"
+                }
+            },
+            "bluetooth_confirm": {
+                "description": "Configure device options",
+                "data": {
+                    "scale_display_unit": "Scale Display Unit"
+                }
+            },
+            "add_first_user": {
+                "title": "Add User Profile",
+                "description": "Create the first user profile for the scale",
+                "data": {
+                    "name": "User Name",
+                    "person_entity": "Person Entity (optional)",
+                    "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
+                    "body_metrics_enabled": "Enable body composition metrics"
+                },
+                "data_description": {
+                    "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+                    "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
+                }
+            },
+            "add_first_user_body_metrics": {
+                "title": "Body Composition Settings",
+                "description": "Fill in your sex, date of birth and height to calculate body composition metrics",
+                "data": {
+                    "sex": "Sex",
+                    "height": "Height",
+                    "birthdate": "Date of Birth",
+                    "feet": "Height (feet)",
+                    "inches": "Height (inches)"
+                }
+            },
+            "body_metrics": {
+                "description": "Fill in your sex, date of birth and height",
+                "data": {
+                    "sex": "Sex",
+                    "height": "Height",
+                    "birthdate": "Date of Birth"
+                }
+            }
         },
         "error": {
             "cannot_connect": "Failed to connect",
-            "unknown": "Unexpected error"
+            "unknown": "Unexpected error",
+            "empty_user_name": "User name cannot be empty. Please provide a valid name.",
+            "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
         },
-        "flow_title": "{name}",
+        "abort": {
+            "no_devices_found": "No devices found on the network",
+            "already_in_progress": "Configuration flow is already in progress",
+            "already_configured": "Device is already configured",
+            "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function.",
+            "user_id_generation_failed": "Failed to generate unique user ID. This is extremely rare. Please try again.",
+            "invalid_user_name": "Invalid user name provided. Please try again."
+        }
+    },
+    "options": {
         "step": {
-            "bluetooth_confirm": {
-                "data": {
-                    "calculate body metrics": "Calculate body composition metrics",
-                    "unit_system": "Unit System"
-                },
-                "description": "Configure device options"
+            "init": {
+                "title": "Manage Scale Configuration",
+                "menu_options": {
+                    "add_user": "Add User Profile",
+                    "edit_user": "Edit User Profile",
+                    "remove_user": "Remove User Profile",
+                    "scale_settings": "Scale Settings",
+                    "advanced_settings": "Advanced Settings"
+                }
             },
-            "body_metrics": {
+            "add_user": {
+                "title": "Add User Profile",
+                "description": "Create a new user profile for the scale",
                 "data": {
-                    "birthdate": "Date of Birth",
+                    "user_name": "User Name",
+                    "person_entity": "Person Entity (optional)",
+                    "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
+                    "body_metrics_enabled": "Enable body composition metrics"
+                },
+                "data_description": {
+                    "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+                    "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
+                }
+            },
+            "add_user_body_metrics": {
+                "title": "Body Composition Settings",
+                "description": "Fill in your sex, date of birth and height to calculate body composition metrics",
+                "data": {
+                    "sex": "Sex",
                     "height": "Height",
-                    "sex": "Sex"
-                },
-                "description": "Fill in your sex, date of birth and height"
+                    "birthdate": "Date of Birth"
+                }
             },
-            "reconfigure": {
+            "edit_user": {
+                "title": "Edit User Profile",
+                "description": "Select a user profile to edit",
                 "data": {
-                    "calculate body metrics": "Calculate body composition metrics",
-                    "unit_system": "Unit System"
-                },
-                "description": "Configure device options"
+                    "user_id": "User to Edit"
+                }
             },
-            "reconfigure_body_metrics": {
+            "edit_user_details": {
+                "title": "Edit User Details",
+                "description": "Update user profile settings",
                 "data": {
-                    "birthdate": "Date of Birth",
+                    "user_name": "User Name",
+                    "person_entity": "Person Entity (optional)",
+                    "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
+                    "body_metrics_enabled": "Enable body composition metrics"
+                },
+                "data_description": {
+                    "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+                    "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
+                }
+            },
+            "edit_user_body_metrics": {
+                "title": "Edit Body Composition Settings",
+                "description": "Update your sex, date of birth and height for body composition calculations",
+                "data": {
+                    "sex": "Sex",
                     "height": "Height",
-                    "sex": "Sex"
-                },
-                "description": "Fill in your sex, date of birth and height"
+                    "birthdate": "Date of Birth"
+                }
             },
-            "user": {
+            "remove_user": {
+                "title": "Remove User Profile",
+                "description": "Select a user profile to remove. Warning: This will remove all measurements for this user.",
                 "data": {
-                    "address": "Device",
-                    "calculate body metrics": "Calculate body composition metrics",
-                    "unit_system": "Unit System"
+                    "user_id": "User to Remove"
+                }
+            },
+            "scale_settings": {
+                "title": "Scale Settings",
+                "description": "Configure scale display unit",
+                "data": {
+                    "scale_display_unit": "Scale Display Unit"
+                }
+            },
+            "advanced_settings": {
+                "title": "Advanced Settings",
+                "description": "Configure history limits and debugging options",
+                "data": {
+                    "history_retention_days": "History Retention (days)",
+                    "max_history_size": "Max History Size (measurements)",
+                    "enable_library_logging": "Enable Library Logging"
                 },
-                "description": "Choose a device to set up"
+                "data_description": {
+                    "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",
+                    "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements.",
+                    "enable_library_logging": "When enabled, logs from the underlying etekcity_esf551_ble library will be included in the integration's logs. Useful for troubleshooting BLE communication issues."
+                }
+            }
+        },
+        "error": {
+            "empty_user_name": "User name cannot be empty. Please provide a valid name.",
+            "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
+        },
+        "abort": {
+            "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function."
+        }
+    },
+    "services": {
+        "assign_measurement": {
+            "name": "Assign measurement",
+            "description": "Manually assign a pending weight measurement to a specific user when automatic detection is ambiguous.",
+            "fields": {
+                "timestamp": {
+                    "name": "Timestamp",
+                    "description": "The timestamp of the pending measurement to assign (shown in the notification)."
+                },
+                "user_id": {
+                    "name": "User ID",
+                    "description": "The unique ID of the user to assign the measurement to."
+                }
+            }
+        },
+        "reassign_measurement": {
+            "name": "Reassign measurement",
+            "description": "Reassign a user's last measurement to a different user.",
+            "fields": {
+                "from_user_id": {
+                    "name": "From User ID",
+                    "description": "The unique ID of the user to take the measurement from."
+                },
+                "to_user_id": {
+                    "name": "To User ID",
+                    "description": "The unique ID of the user to assign the measurement to."
+                }
+            }
+        },
+        "remove_measurement": {
+            "name": "Remove measurement",
+            "description": "Remove a user's last measurement (revert to previous or mark unavailable).",
+            "fields": {
+                "user_id": {
+                    "name": "User ID",
+                    "description": "The unique ID of the user to remove the measurement from."
+                }
             }
         }
     }

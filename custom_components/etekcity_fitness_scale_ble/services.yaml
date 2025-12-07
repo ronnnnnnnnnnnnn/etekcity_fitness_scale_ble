@@ -1,0 +1,98 @@
+# Service definitions for Etekcity Fitness Scale BLE integration
+
+assign_measurement:
+  name: Assign measurement
+  description: Manually assign a pending weight measurement to a specific user.
+  fields:
+    device_id:
+      name: Scale
+      description: The scale device.
+      required: true
+      selector:
+        device:
+          integration: etekcity_fitness_scale_ble
+    timestamp:
+      name: Timestamp
+      description: The timestamp of the pending measurement to assign (shown in the notification).
+      required: true
+      example: "2025-01-15T10:30:00"
+      selector:
+        text:
+    user_id:
+      name: User ID
+      description: >-
+        The unique ID of the user to assign the measurement to.
+        Leave the default space for the default user.
+      required: true
+      default: " "
+      example: "jane"
+      selector:
+        text:
+
+reassign_measurement:
+  name: Reassign measurement
+  description: Reassign a user's measurement to a different user. If no timestamp is provided, the newest measurement is reassigned.
+  fields:
+    device_id:
+      name: Scale
+      description: The scale device.
+      required: true
+      selector:
+        device:
+          integration: etekcity_fitness_scale_ble
+    from_user_id:
+      name: From User ID
+      description: >-
+        The unique ID of the user to take the measurement from.
+        Leave the default space for the default user.
+      required: true
+      default: " "
+      example: "john2"
+      selector:
+        text:
+    to_user_id:
+      name: To User ID
+      description: >-
+        The unique ID of the user to assign the measurement to.
+        Leave the default space for the default user.
+      required: true
+      default: " "
+      example: "jane"
+      selector:
+        text:
+    timestamp:
+      name: Timestamp (optional)
+      description: The timestamp of the specific measurement to reassign. If omitted, the most recent measurement will be used.
+      required: false
+      example: "2025-01-15T10:30:00"
+      selector:
+        text:
+
+remove_measurement:
+  name: Remove measurement
+  description: Remove a measurement from a user's history. By default removes the newest measurement, or specify a timestamp to remove a specific measurement.
+  fields:
+    device_id:
+      name: Scale
+      description: The scale device.
+      required: true
+      selector:
+        device:
+          integration: etekcity_fitness_scale_ble
+    user_id:
+      name: User ID
+      description: >-
+        The unique ID of the user to remove the measurement from.
+        Leave the default space for the default user.
+      required: true
+      default: " "
+      example: "john2"
+      selector:
+        text:
+    timestamp:
+      name: Timestamp
+      description: The timestamp of the specific measurement to remove. If not provided, removes the newest measurement.
+      required: false
+      example: "2025-01-15T10:30:00"
+      selector:
+        text:
