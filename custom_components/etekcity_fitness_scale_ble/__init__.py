@@ -282,7 +282,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not user_id_input:
             return ""
 
-        val = user_id_input.strip("\"\' ")
+        val = user_id_input.strip("\"' ")
 
         return val
 
@@ -294,9 +294,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if profile_user_id is not None:
                 user_name = p.get(CONF_USER_NAME, "Unknown")
                 if profile_user_id == "":
-                    user_list_items.append(
-                        f'{user_name} (leave blank or use "")'
-                    )
+                    user_list_items.append(f'{user_name} (leave blank or use "")')
                 else:
                     user_list_items.append(f"{user_name} (user_id: {profile_user_id})")
         return ", ".join(user_list_items) if user_list_items else "none"
