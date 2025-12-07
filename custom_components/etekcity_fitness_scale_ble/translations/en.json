@@ -6,15 +6,38 @@
                 "description": "Choose a device to set up",
                 "data": {
                     "address": "Device",
-                    "unit_system": "Unit System",
-                    "calculate body metrics": "Calculate body composition metrics"
+                    "scale_display_unit": "Scale Display Unit"
                 }
             },
             "bluetooth_confirm": {
                 "description": "Configure device options",
                 "data": {
-                    "unit_system": "Unit System",
-                    "calculate body metrics": "Calculate body composition metrics"
+                    "scale_display_unit": "Scale Display Unit"
+                }
+            },
+            "add_first_user": {
+                "title": "Add User Profile",
+                "description": "Create the first user profile for the scale",
+                "data": {
+                    "name": "User Name",
+                    "person_entity": "Person Entity (optional)",
+                    "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
+                    "body_metrics_enabled": "Enable body composition metrics"
+                },
+                "data_description": {
+                    "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+                    "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
+                }
+            },
+            "add_first_user_body_metrics": {
+                "title": "Body Composition Settings",
+                "description": "Fill in your sex, date of birth and height to calculate body composition metrics",
+                "data": {
+                    "sex": "Sex",
+                    "height": "Height",
+                    "birthdate": "Date of Birth",
+                    "feet": "Height (feet)",
+                    "inches": "Height (inches)"
                 }
             },
             "body_metrics": {

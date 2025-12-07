@@ -359,6 +359,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Store basic user info in context and proceed to body metrics
                 self.context[CONF_USER_NAME] = user_input[CONF_USER_NAME]
                 self.context[CONF_PERSON_ENTITY] = user_input.get(CONF_PERSON_ENTITY)
+                self.context[CONF_MOBILE_NOTIFY_SERVICES] = user_input.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                )
                 return await self.async_step_add_first_user_body_metrics()
 
             # No body metrics - create entry with basic user profile
@@ -366,6 +369,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USER_ID: _create_user_id(user_input[CONF_USER_NAME], []),
                 CONF_USER_NAME: user_input[CONF_USER_NAME],
                 CONF_PERSON_ENTITY: user_input.get(CONF_PERSON_ENTITY),
+                CONF_MOBILE_NOTIFY_SERVICES: user_input.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                ),
                 CONF_BODY_METRICS_ENABLED: False,
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -380,16 +386,21 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         # Build schema
-        person_entities = [
-            state.entity_id for state in self.hass.states.async_all("person")
-        ]
-
         schema = {
             vol.Required(CONF_USER_NAME, default="Me"): str,
         }
 
-        if person_entities:
-            schema[vol.Optional(CONF_PERSON_ENTITY)] = vol.In([""] + person_entities)
+        # Match the options flow: use an entity selector for person
+        schema[vol.Optional(CONF_PERSON_ENTITY)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="person")
+        )
+
+        # Add mobile notify services selector if any are available
+        available_mobile_services = _get_mobile_notify_services(self.hass)
+        if available_mobile_services:
+            schema[vol.Optional(CONF_MOBILE_NOTIFY_SERVICES)] = cv.multi_select(
+                available_mobile_services
+            )
 
         schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
@@ -428,6 +439,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USER_ID: _create_user_id(self.context[CONF_USER_NAME], []),
                 CONF_USER_NAME: self.context[CONF_USER_NAME],
                 CONF_PERSON_ENTITY: self.context.get(CONF_PERSON_ENTITY),
+                CONF_MOBILE_NOTIFY_SERVICES: self.context.get(
+                    CONF_MOBILE_NOTIFY_SERVICES, []
+                ),
                 CONF_BODY_METRICS_ENABLED: True,
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],

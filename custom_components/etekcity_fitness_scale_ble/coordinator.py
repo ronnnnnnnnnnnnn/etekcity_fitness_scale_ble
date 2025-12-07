@@ -968,6 +968,25 @@ class ScaleDataUpdateCoordinator:
 
         return entry.data.get(CONF_ENABLE_LIBRARY_LOGGING, False)
 
+    def _configure_library_logger(self) -> logging.Logger | None:
+        """Configure the etekcity_esf551_ble logger based on the advanced setting.
+
+        Returns:
+            A child logger to pass to the library when logging is enabled, otherwise None.
+        """
+        library_root = logging.getLogger("etekcity_esf551_ble")
+
+        if self._is_library_logging_enabled():
+            # Re-enable and allow propagation so logs follow HA’s configured level.
+            library_root.disabled = False
+            library_root.propagate = True
+            return _LOGGER.getChild("etekcity_esf551_ble")
+
+        # Disable library logging entirely when the option is off.
+        library_root.disabled = True
+        library_root.propagate = False
+        return None
+
     def _cleanup_history(self, user_profile: dict) -> None:
         """Remove old and excess measurements from history.
 
@@ -1116,14 +1135,20 @@ class ScaleDataUpdateCoordinator:
                 try:
                     if native:
                         scanner = BleakScannerHybrid(
-                            None, None, "active", esphome_clients
+                            None,
+                            None,
+                            BluetoothScanningMode.PASSIVE,
+                            esphome_clients,
                         )
                         _LOGGER.debug(
                             "Created hybrid scanner with native and proxy support"
                         )
                     else:
                         scanner = BleakScannerESPHome(
-                            None, None, "active", esphome_clients
+                            None,
+                            None,
+                            BluetoothScanningMode.PASSIVE,
+                            esphome_clients,
                         )
                         _LOGGER.debug("Created ESPHome proxy scanner")
                 except BleakError as err:
@@ -1160,15 +1185,15 @@ class ScaleDataUpdateCoordinator:
                 _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
 
                 # Conditionally pass logger based on advanced settings
-                library_logger = None
-                if self._is_library_logging_enabled():
-                    library_logger = _LOGGER.getChild("etekcity_esf551_ble")
+                library_logger = self._configure_library_logger()
+                if library_logger:
                     _LOGGER.debug("Library logging enabled, passing child logger")
 
                 self._client = EtekcitySmartFitnessScale(
                     self.address,
                     self.update_listeners,
                     self._display_unit,
+                    scanning_mode=BluetoothScanningMode.PASSIVE,
                     bleak_scanner_backend=scanner,
                     logger=library_logger,
                 )
