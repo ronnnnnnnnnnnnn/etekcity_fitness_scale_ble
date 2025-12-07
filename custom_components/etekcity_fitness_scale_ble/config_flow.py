@@ -355,10 +355,47 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Add first user during initial setup."""
         if user_input is not None:
+            user_name = user_input[CONF_USER_NAME]
+            person_entity = user_input.get(CONF_PERSON_ENTITY)
+
+            errors: dict[str, str] = {}
+
+            # Validate user_name is not empty
+            if not _validate_user_name_not_empty(user_name):
+                errors["base"] = "empty_user_name"
+
+            # Validate person entity is unique (no existing profiles yet, but keep logic consistent)
+            if person_entity and not _validate_person_entity_unique(person_entity, []):
+                errors["person_entity"] = "duplicate_person_entity"
+
+            if errors:
+                schema: dict[Any, Any] = {
+                    vol.Required(CONF_USER_NAME): str,
+                    vol.Optional(CONF_PERSON_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="person")
+                    ),
+                }
+
+                available_mobile_services = _get_mobile_notify_services(self.hass)
+                if available_mobile_services:
+                    schema[vol.Optional(CONF_MOBILE_NOTIFY_SERVICES)] = cv.multi_select(
+                        available_mobile_services
+                    )
+
+                schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
+                    cv.boolean
+                )
+
+                return self.async_show_form(
+                    step_id="add_first_user",
+                    data_schema=vol.Schema(schema),
+                    errors=errors,
+                )
+
             # Check if body metrics is enabled
             if user_input.get(CONF_BODY_METRICS_ENABLED, False):
                 # Store basic user info in context and proceed to body metrics
-                self.context[CONF_USER_NAME] = user_input[CONF_USER_NAME]
+                self.context[CONF_USER_NAME] = user_name
                 self.context[CONF_PERSON_ENTITY] = user_input.get(CONF_PERSON_ENTITY)
                 self.context[CONF_MOBILE_NOTIFY_SERVICES] = user_input.get(
                     CONF_MOBILE_NOTIFY_SERVICES, []
@@ -367,8 +404,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # No body metrics - create entry with basic user profile
             user_profile = {
-                CONF_USER_ID: _create_user_id(user_input[CONF_USER_NAME], []),
-                CONF_USER_NAME: user_input[CONF_USER_NAME],
+                CONF_USER_ID: _create_user_id(user_name, []),
+                CONF_USER_NAME: user_name,
                 CONF_PERSON_ENTITY: user_input.get(CONF_PERSON_ENTITY),
                 CONF_MOBILE_NOTIFY_SERVICES: user_input.get(
                     CONF_MOBILE_NOTIFY_SERVICES, []
