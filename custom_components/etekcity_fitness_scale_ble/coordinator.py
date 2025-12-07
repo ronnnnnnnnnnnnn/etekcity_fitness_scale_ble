@@ -1239,11 +1239,6 @@ class ScaleDataUpdateCoordinator:
 
     def _registration_changed(self, registration: HaScannerRegistration) -> None:
         """Handle Bluetooth scanner registration changes."""
-        import traceback
-
-        _LOGGER.debug(
-            "Registration change stack trace:\n%s", "".join(traceback.format_stack())
-        )
         self._hass.async_create_task(self._async_registration_changed())
 
     async def _async_registration_changed(self) -> None:
