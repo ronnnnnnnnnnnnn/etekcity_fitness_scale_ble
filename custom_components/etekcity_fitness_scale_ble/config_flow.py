@@ -41,6 +41,7 @@ from .const import (
     CONF_USER_ID,
     CONF_USER_NAME,
     CONF_USER_PROFILES,
+    CONF_WEIGHT_HISTORY,
     DOMAIN,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
@@ -200,7 +201,7 @@ def title(discovery_info: BluetoothServiceInfo) -> str:
 class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for BT scale."""
 
-    VERSION = 2
+    VERSION = 3
     _entry: ConfigEntry
 
     def __init__(self) -> None:
@@ -373,6 +374,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_MOBILE_NOTIFY_SERVICES, []
                 ),
                 CONF_BODY_METRICS_ENABLED: False,
+                CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
@@ -387,7 +389,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Build schema
         schema = {
-            vol.Required(CONF_USER_NAME, default="Me"): str,
+            vol.Required(CONF_USER_NAME): str,
         }
 
         # Match the options flow: use an entity selector for person
@@ -446,6 +448,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
+                CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
@@ -471,15 +474,33 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         }
 
         if display_unit == UnitOfMass.KILOGRAMS:
-            schema[vol.Required(CONF_HEIGHT, default=170)] = vol.All(
-                vol.Coerce(int), vol.Range(min=100, max=250)
+            schema[vol.Required(CONF_HEIGHT, default=170)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=100,
+                    max=250,
+                    unit_of_measurement=UnitOfLength.CENTIMETERS,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
         else:
-            schema[vol.Required(CONF_FEET, default=5)] = vol.All(
-                vol.Coerce(int), vol.Range(min=3, max=8)
+            schema[vol.Required(CONF_FEET, default=5)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=3,
+                    max=8,
+                    unit_of_measurement=UnitOfLength.FEET,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
-            schema[vol.Required(CONF_INCHES, default=7)] = vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=11.5)
+            schema[vol.Required(CONF_INCHES, default=7)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=11.5,
+                    unit_of_measurement=UnitOfLength.INCHES,
+                    step=0.5,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
 
         return self.async_show_form(
@@ -698,6 +719,7 @@ class ScaleOptionsFlow(OptionsFlow):
                     CONF_MOBILE_NOTIFY_SERVICES, []
                 ),
                 CONF_BODY_METRICS_ENABLED: False,
+                CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
@@ -790,6 +812,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
+                CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
@@ -819,15 +842,33 @@ class ScaleOptionsFlow(OptionsFlow):
         }
 
         if self.display_unit == UnitOfMass.KILOGRAMS:
-            schema[vol.Required(CONF_HEIGHT, default=170)] = vol.All(
-                vol.Coerce(int), vol.Range(min=100, max=250)
+            schema[vol.Required(CONF_HEIGHT, default=170)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=100,
+                    max=250,
+                    unit_of_measurement=UnitOfLength.CENTIMETERS,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
         else:
-            schema[vol.Required(CONF_FEET, default=5)] = vol.All(
-                vol.Coerce(int), vol.Range(min=3, max=8)
+            schema[vol.Required(CONF_FEET, default=5)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=3,
+                    max=8,
+                    unit_of_measurement=UnitOfLength.FEET,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
-            schema[vol.Required(CONF_INCHES, default=7)] = vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=11.5)
+            schema[vol.Required(CONF_INCHES, default=7)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=11.5,
+                    unit_of_measurement=UnitOfLength.INCHES,
+                    step=0.5,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
 
         return self.async_show_form(
@@ -1128,7 +1169,15 @@ class ScaleOptionsFlow(OptionsFlow):
         if self.display_unit == UnitOfMass.KILOGRAMS:
             schema[
                 vol.Required(CONF_HEIGHT, default=current_user.get(CONF_HEIGHT, 170))
-            ] = vol.All(vol.Coerce(int), vol.Range(min=100, max=250))
+            ] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=100,
+                    max=350,
+                    unit_of_measurement=UnitOfLength.CENTIMETERS,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            )
         else:
             # Convert cm to feet/inches for display
             height_cm = current_user.get(CONF_HEIGHT, 170)
@@ -1136,11 +1185,23 @@ class ScaleOptionsFlow(OptionsFlow):
             feet = int(total_inches // 12)
             inches = round((total_inches % 12) * 2) / 2
 
-            schema[vol.Required(CONF_FEET, default=feet)] = vol.All(
-                vol.Coerce(int), vol.Range(min=3, max=8)
+            schema[vol.Required(CONF_FEET, default=feet)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=3,
+                    max=8,
+                    unit_of_measurement=UnitOfLength.FEET,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
-            schema[vol.Required(CONF_INCHES, default=inches)] = vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=11.5)
+            schema[vol.Required(CONF_INCHES, default=inches)] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=11.5,
+                    unit_of_measurement=UnitOfLength.INCHES,
+                    step=0.5,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             )
 
         return self.async_show_form(

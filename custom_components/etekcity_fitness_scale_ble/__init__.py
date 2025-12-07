@@ -39,6 +39,9 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
+# Data keys
+DATA_MOBILE_APP_LISTENER_UNSUB = "mobile_app_listener_unsub"
+
 # Service constants
 SERVICE_ASSIGN_MEASUREMENT = "assign_measurement"
 SERVICE_REASSIGN_MEASUREMENT = "reassign_measurement"
@@ -206,7 +209,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "- Link it to a person entity\n"
             "- Add additional users\n"
             "- Remove the default user (once you've added other users)\n\n"
-            "Go to **Device Settings** (⚙️) on the integration card to manage user profiles.",
+            "Go to the integration's **Device Settings** (⚙️) to manage user profiles.",
             title="Etekcity Scale: Multi-User Support Enabled",
             notification_id="etekcity_scale_migration_v2",
         )
@@ -604,11 +607,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as ex:
             _LOGGER.error("Error handling mobile app notification action: %s", ex)
 
-    # Register the event listener
-    hass.bus.async_listen(
-        "mobile_app_notification_action", handle_mobile_app_notification_action
-    )
-    _LOGGER.debug("Registered event listener for mobile_app_notification_action")
+    # Register the event listener once (shared across all entries)
+    if DATA_MOBILE_APP_LISTENER_UNSUB not in hass.data[DOMAIN]:
+        hass.data[DOMAIN][DATA_MOBILE_APP_LISTENER_UNSUB] = hass.bus.async_listen(
+            "mobile_app_notification_action", handle_mobile_app_notification_action
+        )
+        _LOGGER.debug("Registered event listener for mobile_app_notification_action")
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(coordinator.async_stop)
@@ -622,8 +626,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_stop()
         bluetooth.async_rediscover_address(hass, coordinator.address)
 
-        # Unregister services if this is the last entry
-        if not hass.data[DOMAIN]:
+        remaining_coordinators = [
+            value
+            for value in hass.data[DOMAIN].values()
+            if isinstance(value, ScaleDataUpdateCoordinator)
+        ]
+
+        # Unregister shared listener and services if this is the last entry
+        if not remaining_coordinators:
+            if unsub := hass.data[DOMAIN].pop(DATA_MOBILE_APP_LISTENER_UNSUB, None):
+                unsub()
+                _LOGGER.debug(
+                    "Unregistered event listener for mobile_app_notification_action"
+                )
             hass.services.async_remove(DOMAIN, SERVICE_ASSIGN_MEASUREMENT)
             _LOGGER.debug(
                 "Unregistered service: %s.%s", DOMAIN, SERVICE_ASSIGN_MEASUREMENT

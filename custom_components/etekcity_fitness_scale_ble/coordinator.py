@@ -1788,48 +1788,54 @@ class ScaleDataUpdateCoordinator:
                     height_cm = user_profile.get("height")
                     user_name = user_profile.get("name", user_id)
 
-                    if height_cm <= 0:
+                    if height_cm is None:
+                        _LOGGER.warning(
+                            "Missing height for user_id: %s, skipping body metrics calculation",
+                            user_id,
+                        )
+                        height_m = None
+                    elif not isinstance(height_cm, (int, float)) or height_cm <= 0:
                         _LOGGER.error(
                             "Invalid height for user_id: %s (height: %s cm, must be positive number)",
                             user_id,
                             height_cm,
                         )
-                        # Skip body metrics calculation if height is invalid
-                        return
-
-                    height_m = height_cm / 100.0
-
-                    if impedance:
-                        birthdate_str = user_profile.get("birthdate")
-                        if isinstance(birthdate_str, str):
-                            birthdate = dt_date.fromisoformat(birthdate_str)
-                        else:
-                            birthdate = birthdate_str
-
-                        sex_str = user_profile.get("sex", "Male")
-                        sex = Sex.Male if sex_str == "Male" else Sex.Female
-                        age = _calc_age(birthdate)
-                        body_metrics = BodyMetrics(
-                            weight_kg, height_m, age, sex, impedance
-                        )
-                        metrics_dict = _as_dictionary(body_metrics)
-
-                        # Add body metrics to measurements
-                        data.measurements.update(metrics_dict)
-                        _LOGGER.debug(
-                            "Added body metrics for user %s: %s",
-                            user_name,
-                            list(metrics_dict.keys()),
-                        )
+                        height_m = None
                     else:
-                        _LOGGER.warning(
-                            "No impedance measurement available for user %s, skipping impedance-dependent body metrics calculation",
-                            user_id,
-                        )
-                        # Not going through the body metrics calculation, so we calculate BMI manually for now.
-                        data.measurements["body_mass_index"] = (
-                            floor(weight_kg / (height_m**2) * 100) / 100
-                        )
+                        height_m = height_cm / 100.0
+
+                    if height_m is not None:
+                        if impedance:
+                            birthdate_str = user_profile.get("birthdate")
+                            if isinstance(birthdate_str, str):
+                                birthdate = dt_date.fromisoformat(birthdate_str)
+                            else:
+                                birthdate = birthdate_str
+
+                            sex_str = user_profile.get("sex", "Male")
+                            sex = Sex.Male if sex_str == "Male" else Sex.Female
+                            age = _calc_age(birthdate)
+                            body_metrics = BodyMetrics(
+                                weight_kg, height_m, age, sex, impedance
+                            )
+                            metrics_dict = _as_dictionary(body_metrics)
+
+                            # Add body metrics to measurements
+                            data.measurements.update(metrics_dict)
+                            _LOGGER.debug(
+                                "Added body metrics for user %s: %s",
+                                user_name,
+                                list(metrics_dict.keys()),
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "No impedance measurement available for user %s, skipping impedance-dependent body metrics calculation",
+                                user_id,
+                            )
+                            # Not going through the body metrics calculation, so we calculate BMI manually for now.
+                            data.measurements["body_mass_index"] = (
+                                floor(weight_kg / (height_m**2) * 100) / 100
+                            )
             except (ValueError, TypeError, AttributeError) as ex:
                 # Catch expected errors from invalid data
                 _LOGGER.error(
@@ -2322,44 +2328,50 @@ class ScaleDataUpdateCoordinator:
                     height_cm = user_profile.get("height")
                     user_name = user_profile.get("name", user_id)
 
-                    if height_cm <= 0:
+                    if height_cm is None:
+                        _LOGGER.warning(
+                            "Missing height for user_id: %s, skipping body metrics calculation",
+                            user_id,
+                        )
+                        height_m = None
+                    elif not isinstance(height_cm, (int, float)) or height_cm <= 0:
                         _LOGGER.error(
                             "Invalid height for user_id: %s (height: %s cm, must be positive number), skipping body metrics",
                             user_id,
                             height_cm,
                         )
-                        # Return ScaleData without body metrics
-                        return ScaleData(measurements=measurements)
-
-                    height_m = height_cm / 100.0
-
-                    if impedance:
-                        birthdate_str = user_profile.get("birthdate")
-                        if isinstance(birthdate_str, str):
-                            birthdate = dt_date.fromisoformat(birthdate_str)
-                        else:
-                            birthdate = birthdate_str
-
-                        sex_str = user_profile.get("sex", "Male")
-                        sex = Sex.Male if sex_str == "Male" else Sex.Female
-                        age = _calc_age(birthdate)
-                        body_metrics = BodyMetrics(
-                            weight_kg, height_m, age, sex, impedance
-                        )
-                        metrics_dict = _as_dictionary(body_metrics)
-
-                        # Add body metrics to measurements
-                        measurements.update(metrics_dict)
-                        _LOGGER.debug(
-                            "Recalculated body metrics for user %s from history: %s",
-                            user_name,
-                            list(metrics_dict.keys()),
-                        )
+                        height_m = None
                     else:
-                        # No impedance - calculate BMI only
-                        measurements["body_mass_index"] = (
-                            floor(weight_kg / (height_m**2) * 100) / 100
-                        )
+                        height_m = height_cm / 100.0
+
+                    if height_m is not None:
+                        if impedance:
+                            birthdate_str = user_profile.get("birthdate")
+                            if isinstance(birthdate_str, str):
+                                birthdate = dt_date.fromisoformat(birthdate_str)
+                            else:
+                                birthdate = birthdate_str
+
+                            sex_str = user_profile.get("sex", "Male")
+                            sex = Sex.Male if sex_str == "Male" else Sex.Female
+                            age = _calc_age(birthdate)
+                            body_metrics = BodyMetrics(
+                                weight_kg, height_m, age, sex, impedance
+                            )
+                            metrics_dict = _as_dictionary(body_metrics)
+
+                            # Add body metrics to measurements
+                            measurements.update(metrics_dict)
+                            _LOGGER.debug(
+                                "Recalculated body metrics for user %s from history: %s",
+                                user_name,
+                                list(metrics_dict.keys()),
+                            )
+                        else:
+                            # No impedance - calculate BMI only
+                            measurements["body_mass_index"] = (
+                                floor(weight_kg / (height_m**2) * 100) / 100
+                            )
             except (ValueError, TypeError, AttributeError) as ex:
                 # Catch expected errors from invalid data
                 _LOGGER.error(
