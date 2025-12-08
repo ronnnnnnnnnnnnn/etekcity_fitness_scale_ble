@@ -8,7 +8,8 @@
   "bluetooth": [
     {
       "connectable": true,
-      "manufacturer_id": 1744
+      "manufacturer_id": 1744,
+      "local_name": "Etekcity *Fitness *Scale*"
     }
   ],
   "codeowners": [

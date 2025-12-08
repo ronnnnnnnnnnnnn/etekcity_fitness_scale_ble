@@ -195,7 +195,10 @@ class Discovery:
 
 
 def title(discovery_info: BluetoothServiceInfo) -> str:
-    return f"{discovery_info.name} {discovery_info.address}"
+    name = discovery_info.name
+    if not name or name == discovery_info.address:
+        return discovery_info.address
+    return f"{name} {discovery_info.address}"
 
 
 class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -599,6 +602,16 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         for discovery_info in async_discovered_service_info(self.hass):
             address = discovery_info.address
             if address in current_addresses or address in self._discovered_devices:
+                continue
+
+            # Filter for Etekcity scales (Manufacturer ID 1744 or name match)
+            is_etekcity = False
+            if 1744 in discovery_info.manufacturer_data:
+                is_etekcity = True
+            elif discovery_info.name.lower().startswith("etekcity"):
+                is_etekcity = True
+
+            if not is_etekcity:
                 continue
 
             _LOGGER.debug("Found BT Scale")
