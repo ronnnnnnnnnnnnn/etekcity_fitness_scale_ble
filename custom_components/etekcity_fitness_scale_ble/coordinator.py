@@ -80,6 +80,12 @@ if IS_LINUX:
 _LOGGER = logging.getLogger(__name__)
 
 
+class BluetoothNotAvailableError(Exception):
+    """Exception raised when no Bluetooth adapter or ESPHome proxy is available."""
+
+    pass
+
+
 class BleakScannerESPHome(BaseBleakScanner):
     """
     A BLE scanner implementation that uses ESPHome devices as Bluetooth proxies.
@@ -1085,7 +1091,7 @@ class ScaleDataUpdateCoordinator:
         try:
             manager = self._hass.data.get("bluetooth_manager")
             if not manager:
-                _LOGGER.warning("Bluetooth manager not available")
+                _LOGGER.debug("Bluetooth manager not available")
                 return None
 
             # Get Bluetooth sources
@@ -1159,8 +1165,16 @@ class ScaleDataUpdateCoordinator:
                         "Unexpected error creating Bluetooth scanner: %s", ex
                     )
                     scanner = None
+            elif not native:
+                # No ESPHome proxies AND no native adapter = no Bluetooth available
+                raise BluetoothNotAvailableError(
+                    "No Bluetooth adapter or ESPHome proxy available"
+                )
 
             return scanner
+        except BluetoothNotAvailableError:
+            # Re-raise to be handled by caller
+            raise
         except Exception as ex:
             _LOGGER.exception("Error getting Bluetooth scanner: %s", ex)
             return None
@@ -1178,7 +1192,17 @@ class ScaleDataUpdateCoordinator:
                     self._client = None
 
             # Get the optimal scanner
-            scanner = await self._get_bluetooth_scanner()
+            try:
+                scanner = await self._get_bluetooth_scanner()
+            except BluetoothNotAvailableError as err:
+                # No Bluetooth adapter or ESPHome proxy available yet
+                # This is expected during startup. The _registration_changed
+                # callback will restart the client when Bluetooth becomes available.
+                _LOGGER.warning(
+                    "Bluetooth not available. "
+                    "Waiting for a Bluetooth adapter or ESPHome Bluetooth proxy to become available.",
+                )
+                return  # Graceful exit, callback will retry
 
             # Initialize client (always use basic client, body metrics calculated per-user)
             try:
