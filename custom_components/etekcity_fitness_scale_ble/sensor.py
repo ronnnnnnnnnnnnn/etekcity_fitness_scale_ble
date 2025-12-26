@@ -5,7 +5,6 @@ import logging
 from typing import Any, Self
 
 from etekcity_esf551_ble import IMPEDANCE_KEY, WEIGHT_KEY, WeightUnit
-from sensor_state_data import Units
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import (
@@ -17,7 +16,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
     async_update_suggested_units,
 )
-from homeassistant.const import CONF_UNIT_SYSTEM, EntityCategory, UnitOfMass
+from homeassistant.const import (
+    CONF_UNIT_SYSTEM,
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfMass,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
@@ -47,7 +51,7 @@ SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="body_fat_percentage",
         icon="mdi:human-handsdown",
-        native_unit_of_measurement=Units.PERCENTAGE,
+        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
@@ -60,7 +64,7 @@ SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="subcutaneous_fat_percentage",
         icon="mdi:human-handsdown",
-        native_unit_of_measurement=Units.PERCENTAGE,
+        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
@@ -71,7 +75,7 @@ SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="body_water_percentage",
         icon="mdi:water-percent",
-        native_unit_of_measurement=Units.PERCENTAGE,
+        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
@@ -83,7 +87,7 @@ SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="skeletal_muscle_percentage",
         icon="mdi:weight-lifter",
-        native_unit_of_measurement=Units.PERCENTAGE,
+        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
@@ -103,7 +107,7 @@ SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="protein_percentage",
         icon="mdi:egg-fried",
-        native_unit_of_measurement=Units.PERCENTAGE,
+        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
@@ -168,7 +172,7 @@ async def async_setup_entry(
                 SensorEntityDescription(
                     key=IMPEDANCE_KEY,
                     icon="mdi:omega",
-                    native_unit_of_measurement=Units.OHM,
+                    native_unit_of_measurement="Ω",
                     state_class=SensorStateClass.MEASUREMENT,
                 ),
                 user_id=None,  # v1 doesn't have user_id
@@ -216,7 +220,7 @@ async def async_setup_entry(
                     SensorEntityDescription(
                         key=IMPEDANCE_KEY,
                         icon="mdi:omega",
-                        native_unit_of_measurement=Units.OHM,
+                        native_unit_of_measurement="Ω",
                         state_class=SensorStateClass.MEASUREMENT,
                     ),
                     user_id=user_id,
