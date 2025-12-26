@@ -1194,7 +1194,7 @@ class ScaleDataUpdateCoordinator:
             # Get the optimal scanner
             try:
                 scanner = await self._get_bluetooth_scanner()
-            except BluetoothNotAvailableError as err:
+            except BluetoothNotAvailableError:
                 # No Bluetooth adapter or ESPHome proxy available yet
                 # This is expected during startup. The _registration_changed
                 # callback will restart the client when Bluetooth becomes available.
