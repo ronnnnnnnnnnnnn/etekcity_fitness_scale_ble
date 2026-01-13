@@ -1,3 +1,4 @@
 {
-    "name": "Etekcity Fitness Scale BLE"
+    "name": "Etekcity Fitness Scale BLE",
+    "homeassistant": "2026.1.0"
 }

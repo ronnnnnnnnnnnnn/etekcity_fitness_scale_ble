@@ -62,8 +62,7 @@ IS_MACOS = SYSTEM == "Darwin"
 
 
 if IS_LINUX:
-    from bleak.backends.bluezdbus.advertisement_monitor import OrPattern
-    from bleak.backends.bluezdbus.scanner import BlueZScannerArgs
+    from bleak.args.bluez import BlueZScannerArgs, OrPattern
 
     # or_patterns is a workaround for the fact that passive scanning
     # needs at least one matcher to be set. The below matcher
@@ -485,7 +484,7 @@ class BleakScannerHybrid(BaseBleakScanner):
 
         # Try to create native scanner
         try:
-            PlatformBleakScanner = get_platform_scanner_backend_type()
+            PlatformBleakScanner, _ = get_platform_scanner_backend_type()
             scanner_kwargs: dict[str, Any] = {
                 "bluez": {},
                 "cb": {},
