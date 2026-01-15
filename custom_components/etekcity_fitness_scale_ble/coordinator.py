@@ -462,7 +462,7 @@ class BleakScannerHybrid(BaseBleakScanner):
 
         # Try to create native scanner
         try:
-            PlatformBleakScanner = get_platform_scanner_backend_type()
+            PlatformBleakScanner, _ = get_platform_scanner_backend_type()
             scanner_kwargs: dict[str, Any] = {
                 "bluez": {},
                 "cb": {},
