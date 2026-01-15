@@ -417,7 +417,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         # Show reconfiguration form
         if not (unit_system := self._entry.data.get(CONF_UNIT_SYSTEM)):
             unit_system = UnitOfMass.KILOGRAMS
-            
+
         if scale_model == ScaleModel.ESF24:
             return self.async_show_form(
                 step_id="reconfigure",
@@ -427,7 +427,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema(
                     {
                         vol.Required(CONF_UNIT_SYSTEM, default=unit_system): vol.In(
-                            {UnitOfMass.KILOGRAMS: "Metric", UnitOfMass.POUNDS: "Imperial"}
+                            {
+                                UnitOfMass.KILOGRAMS: "Metric",
+                                UnitOfMass.POUNDS: "Imperial",
+                            }
                         ),
                     }
                 ),
