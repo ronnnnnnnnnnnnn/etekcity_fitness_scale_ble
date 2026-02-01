@@ -1086,12 +1086,18 @@ class ScaleDataUpdateCoordinator:
 
         Returns:
             A configured Bluetooth scanner or None if no scanner could be created.
+
+        Raises:
+            BluetoothNotAvailableError: If bluetooth_manager is not available or
+                no Bluetooth adapter/proxy is available.
         """
         try:
             manager = self._hass.data.get("bluetooth_manager")
             if not manager:
-                _LOGGER.debug("Bluetooth manager not available")
-                return None
+                _LOGGER.debug("Bluetooth manager not available yet")
+                raise BluetoothNotAvailableError(
+                    "Bluetooth manager not available - Bluetooth integration may still be initializing"
+                )
 
             # Get Bluetooth sources
             sources = manager._sources
@@ -1195,13 +1201,13 @@ class ScaleDataUpdateCoordinator:
                 scanner = await self._get_bluetooth_scanner()
             except BluetoothNotAvailableError:
                 # No Bluetooth adapter or ESPHome proxy available yet
-                # This is expected during startup. The _registration_changed
-                # callback will restart the client when Bluetooth becomes available.
+                # This is expected during startup. Re-raise so caller can decide
+                # whether to schedule a retry or rely on the callback.
                 _LOGGER.warning(
                     "Bluetooth not available. "
                     "Waiting for a Bluetooth adapter or ESPHome Bluetooth proxy to become available.",
                 )
-                return  # Graceful exit, callback will retry
+                raise  # Let caller handle retry logic
 
             # Initialize client (always use basic client, body metrics calculated per-user)
             try:
@@ -1281,6 +1287,10 @@ class ScaleDataUpdateCoordinator:
 
         This method sets up the EtekcitySmartFitnessScale client and starts
         listening for updates from the scale.
+
+        Raises:
+            BluetoothNotAvailableError: If Bluetooth manager or adapters are not
+                available. Caller should handle this by raising ConfigEntryNotReady.
         """
         _LOGGER.debug(
             "Starting ScaleDataUpdateCoordinator for address: %s", self.address
@@ -1291,7 +1301,8 @@ class ScaleDataUpdateCoordinator:
             self._scanner_change_cb_unregister()
             self._scanner_change_cb_unregister = None
 
-        # Register for scanner changes
+        # Register for scanner changes (if bluetooth_manager is available)
+        # This callback will restart the client when adapters/proxies change
         bluetooth_manager = self._hass.data.get("bluetooth_manager")
         if bluetooth_manager:
             self._scanner_change_cb_unregister = (
@@ -1304,6 +1315,10 @@ class ScaleDataUpdateCoordinator:
             try:
                 await self._async_start()
                 _LOGGER.debug("ScaleDataUpdateCoordinator started successfully")
+            except BluetoothNotAvailableError:
+                # Let the error bubble up - caller will raise ConfigEntryNotReady
+                # which triggers Home Assistant's automatic retry with backoff
+                raise
             except Exception as ex:
                 _LOGGER.error(
                     "Failed to start ScaleDataUpdateCoordinator (%s: %s)",
