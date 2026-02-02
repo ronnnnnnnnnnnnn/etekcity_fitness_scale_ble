@@ -7,7 +7,6 @@ from typing import Any, Self
 from etekcity_esf551_ble import IMPEDANCE_KEY, WEIGHT_KEY, WeightUnit
 
 from homeassistant import config_entries
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
@@ -38,11 +37,7 @@ from .const import (
     DOMAIN,
     get_sensor_unique_id,
 )
-from .coordinator import (
-    BluetoothNotAvailableError,
-    ScaleData,
-    ScaleDataUpdateCoordinator,
-)
+from .coordinator import ScaleData, ScaleDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -276,14 +271,11 @@ async def async_setup_entry(
     async_add_entities(entities)
     async_update_suggested_units(hass)
 
-    # Start the coordinator
-    try:
-        await coordinator.async_start()
-    except BluetoothNotAvailableError as err:
-        # Bluetooth not available yet - Home Assistant will retry with backoff
-        raise ConfigEntryNotReady(
-            "Bluetooth not available yet. Will retry automatically."
-        ) from err
+    # Start the coordinator AFTER entities are added
+    # This ensures listeners are registered before BLE scanning begins
+    # (Bluetooth availability was already checked in __init__.py)
+    await coordinator.async_start()
+
     _LOGGER.debug("Scale sensors setup completed for entry: %s", entry.entry_id)
 
 

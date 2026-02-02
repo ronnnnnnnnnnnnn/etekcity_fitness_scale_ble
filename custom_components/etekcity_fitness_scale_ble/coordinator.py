@@ -1081,6 +1081,21 @@ class ScaleDataUpdateCoordinator:
         self._hass.config_entries.async_update_entry(entry, data=new_data)
         _LOGGER.debug("Updated config entry with current user profiles")
 
+    def check_bluetooth_available(self) -> None:
+        """Check if Bluetooth is available without starting the scanner.
+
+        This is a lightweight check that can be called before async_start()
+        to verify Bluetooth availability early (e.g., before setting up platforms).
+
+        Raises:
+            BluetoothNotAvailableError: If bluetooth_manager is not available.
+        """
+        manager = self._hass.data.get("bluetooth_manager")
+        if not manager:
+            raise BluetoothNotAvailableError(
+                "Bluetooth manager not available - Bluetooth integration may still be initializing"
+            )
+
     async def _get_bluetooth_scanner(self) -> BaseBleakScanner | None:
         """Get the optimal Bluetooth scanner based on available resources.
 

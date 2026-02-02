@@ -33,7 +33,9 @@ from .const import (
     CONF_WEIGHT_HISTORY,
     DOMAIN,
 )
-from .coordinator import ScaleDataUpdateCoordinator
+from homeassistant.exceptions import ConfigEntryNotReady
+
+from .coordinator import BluetoothNotAvailableError, ScaleDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -613,6 +615,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "mobile_app_notification_action", handle_mobile_app_notification_action
         )
         _LOGGER.debug("Registered event listener for mobile_app_notification_action")
+
+    # Check Bluetooth availability before forwarding to platforms
+    # This satisfies HA's requirement to raise ConfigEntryNotReady early
+    # The actual coordinator.async_start() happens in sensor.py after entities are registered
+    try:
+        coordinator.check_bluetooth_available()
+    except BluetoothNotAvailableError as err:
+        # Bluetooth not available yet - Home Assistant will retry with backoff
+        raise ConfigEntryNotReady(
+            "Bluetooth not available yet. Will retry automatically."
+        ) from err
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(coordinator.async_stop)
