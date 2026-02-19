@@ -31,10 +31,12 @@ from .const import (
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
     CONF_SCALE_DISPLAY_UNIT,
+    CONF_SCALE_MODEL,
     CONF_USER_ID,
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     DOMAIN,
+    ScaleModel,
     get_sensor_unique_id,
 )
 from .coordinator import ScaleData, ScaleDataUpdateCoordinator
@@ -147,6 +149,9 @@ async def async_setup_entry(
     # Get user profiles from config entry
     user_profiles = entry.data.get(CONF_USER_PROFILES, [])
 
+    # Get scale model (ESF-24 supports weight only; ESF-551 supports weight + impedance + body metrics)
+    scale_model = entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
+
     # Handle migration from v1 (old single-user format)
     if entry.data.get(CONF_CALC_BODY_METRICS):
         _LOGGER.debug("Migrating from v1 single-user format")
@@ -197,7 +202,7 @@ async def async_setup_entry(
             user_name = user_profile.get(CONF_USER_NAME, "User")
             body_metrics_enabled = user_profile.get(CONF_BODY_METRICS_ENABLED, False)
 
-            # Create weight and impedance sensors for this user
+            # ESF-24: weight only. ESF-551: weight + impedance + optional body metrics
             user_entities = [
                 ScaleUserWeightSensor(
                     entry.title,
@@ -213,34 +218,36 @@ async def async_setup_entry(
                     user_id=user_id,
                     user_name=user_name,
                 ),
-                ScaleUserSensor(
-                    entry.title,
-                    address,
-                    coordinator,
-                    SensorEntityDescription(
-                        key=IMPEDANCE_KEY,
-                        icon="mdi:omega",
-                        native_unit_of_measurement="Ω",
-                        state_class=SensorStateClass.MEASUREMENT,
-                    ),
-                    user_id=user_id,
-                    user_name=user_name,
-                ),
             ]
 
-            # Add body metrics sensors if enabled for this user
-            if body_metrics_enabled:
-                user_entities += [
+            if scale_model == ScaleModel.ESF551:
+                user_entities.append(
                     ScaleUserSensor(
                         entry.title,
                         address,
                         coordinator,
-                        desc,
+                        SensorEntityDescription(
+                            key=IMPEDANCE_KEY,
+                            icon="mdi:omega",
+                            native_unit_of_measurement="Ω",
+                            state_class=SensorStateClass.MEASUREMENT,
+                        ),
                         user_id=user_id,
                         user_name=user_name,
-                    )
-                    for desc in SENSOR_DESCRIPTIONS
-                ]
+                    ),
+                )
+                if body_metrics_enabled:
+                    user_entities += [
+                        ScaleUserSensor(
+                            entry.title,
+                            address,
+                            coordinator,
+                            desc,
+                            user_id=user_id,
+                            user_name=user_name,
+                        )
+                        for desc in SENSOR_DESCRIPTIONS
+                    ]
 
             entities.extend(user_entities)
 

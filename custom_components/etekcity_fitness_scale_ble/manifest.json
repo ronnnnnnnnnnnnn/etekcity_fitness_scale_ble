@@ -15,6 +15,10 @@
       "connectable": true,
       "manufacturer_id": 1744,
       "local_name": "D0:4D:00:*"
+    },
+    {
+      "connectable": true,
+      "local_name": "QN-Scale1"
     }
   ],
   "codeowners": [

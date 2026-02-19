@@ -103,8 +103,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Copy old data
         old_data = {**entry.data}
 
-        # Safety check: If data already has v2+ structure, skip migration
-        # This prevents data loss if migration is called on already-migrated entry
+        # Safety check: If data already has v2+ structure, skip migration.
+        # This prevents data loss if migration is called on already-migrated entry,
+        # and preserves ESF24 beta entries (v2-style with CONF_SCALE_MODEL).
         if CONF_USER_PROFILES in old_data:
             _LOGGER.warning(
                 "Config entry version is %s but data already has v2 structure "
@@ -115,10 +116,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             current_version = 2
         else:
             # Build new data structure (replaces old format entirely)
+            # v1 only ever supported ESF-551; ESF24 was added later, so migrated entries are ESF551
             new_data = {
                 CONF_SCALE_DISPLAY_UNIT: old_data.get(
                     CONF_UNIT_SYSTEM, UnitOfMass.KILOGRAMS
                 ),
+                CONF_SCALE_MODEL: ScaleModel.ESF551,
                 CONF_USER_PROFILES: [],
             }
 
@@ -169,7 +172,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if current_version < 3:
         _LOGGER.info("Migrating config entry from version 2 to version 3")
 
-        # Add mobile_notify_services and weight_history fields to each user profile
+        # Add mobile_notify_services and weight_history fields to each user profile.
+        # new_data preserves all existing keys (e.g. CONF_SCALE_MODEL from ESF24 beta).
         user_profiles = new_data.get(CONF_USER_PROFILES, [])
         for user_profile in user_profiles:
             if CONF_MOBILE_NOTIFY_SERVICES not in user_profile:

@@ -36,6 +36,14 @@ _LOGGER = logging.getLogger(__name__)
 MAX_MEASUREMENTS_PER_DAY_FOR_TOLERANCE = 2
 
 
+def _parse_timestamp(ts: str) -> datetime | None:
+    """Parse an ISO-format timestamp; return None if invalid."""
+    try:
+        return datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return None
+
+
 @dataclass(frozen=True)
 class _MeasurementRecord:
     """Measurement cache entry for aggregation."""
@@ -54,7 +62,9 @@ def _limit_measurements_per_day(measurements: list[dict]) -> list[dict]:
         list
     )
     for measurement in measurements:
-        timestamp = datetime.fromisoformat(measurement["timestamp"])
+        timestamp = _parse_timestamp(measurement.get("timestamp", ""))
+        if timestamp is None:
+            continue
         day_buckets[timestamp.date()].append(
             _MeasurementRecord(timestamp=timestamp, data=measurement)
         )
@@ -143,19 +153,26 @@ def calculate_reference_weight(
     if not measurements:
         return None
 
+    # Skip measurements with invalid timestamps
+    valid_measurements = [
+        m for m in measurements if _parse_timestamp(m.get("timestamp", "")) is not None
+    ]
+    if not valid_measurements:
+        return None
+
     cutoff_time = current_time - timedelta(days=REFERENCE_WINDOW_DAYS)
 
     # Filter to reference window
     recent = [
-        m for m in measurements if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
+        m for m in valid_measurements if _parse_timestamp(m["timestamp"]) >= cutoff_time
     ]
 
     # Limit measurement density to avoid skew from rapid repeats
     recent = _limit_measurements_per_day(recent)
 
     if not recent:
-        # Fallback to most recent measurement outside window
-        fallback_weight = measurements[-1]["weight_kg"]
+        # Fallback to most recent valid measurement outside window
+        fallback_weight = valid_measurements[-1]["weight_kg"]
         _LOGGER.debug(
             "No measurements within %d-day reference window, using most recent: %.2f kg",
             REFERENCE_WINDOW_DAYS,
@@ -169,7 +186,9 @@ def calculate_reference_weight(
     half_life = REFERENCE_WINDOW_DAYS / 2  # Half-life at midpoint of window
 
     for measurement in recent:
-        timestamp = datetime.fromisoformat(measurement["timestamp"])
+        timestamp = _parse_timestamp(measurement["timestamp"])
+        if timestamp is None:
+            continue
         age_days = (current_time - timestamp).total_seconds() / 86400
         # Exponential decay: weight = exp(-age / half_life)
         decay_weight = math.exp(-age_days / half_life)
@@ -226,9 +245,12 @@ def calculate_adaptive_tolerance(
     """
     cutoff_time = current_time - timedelta(days=VARIANCE_WINDOW_DAYS)
 
-    # Filter to variance window
+    # Filter to variance window (skip invalid timestamps)
     recent_measurements = [
-        m for m in measurements if datetime.fromisoformat(m["timestamp"]) >= cutoff_time
+        m
+        for m in measurements
+        if _parse_timestamp(m.get("timestamp", "")) is not None
+        and _parse_timestamp(m["timestamp"]) >= cutoff_time
     ]
 
     # Limit measurement density within the window
@@ -386,8 +408,20 @@ def get_tolerance_for_user(
         )
         return (None, None)
 
-    # Check if history is too stale
-    last_measurement_time = datetime.fromisoformat(history[-1]["timestamp"])
+    # Find last measurement with valid timestamp
+    last_measurement_time = None
+    for m in reversed(history):
+        t = _parse_timestamp(m.get("timestamp", ""))
+        if t is not None:
+            last_measurement_time = t
+            break
+    if last_measurement_time is None:
+        _LOGGER.debug(
+            "User %s has no valid timestamps in weight history - cannot calculate tolerance",
+            user_name,
+        )
+        return (None, None)
+
     days_since_last = (current_time - last_measurement_time).total_seconds() / 86400
 
     if days_since_last > HISTORY_RETENTION_DAYS:

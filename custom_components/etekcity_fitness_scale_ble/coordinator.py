@@ -35,6 +35,12 @@ from etekcity_esf551_ble import (
     ScaleData,
     WeightUnit,
 )
+
+try:
+    from etekcity_esf551_ble import ESF24Scale, ESF551Scale
+except ImportError:
+    ESF24Scale = None  # type: ignore[misc, assignment]
+    ESF551Scale = None  # type: ignore[misc, assignment]
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
@@ -1228,23 +1234,46 @@ class ScaleDataUpdateCoordinator:
                 )
                 raise  # Let caller handle retry logic
 
-            # Initialize client (always use basic client, body metrics calculated per-user)
+            # Initialize client based on scale model (ESF24 vs ESF551)
             try:
-                _LOGGER.debug("Initializing new EtekcitySmartFitnessScale client")
-
-                # Conditionally pass logger based on advanced settings
                 library_logger = self._configure_library_logger()
                 if library_logger:
                     _LOGGER.debug("Library logging enabled, passing child logger")
 
-                self._client = EtekcitySmartFitnessScale(
-                    self.address,
-                    self.update_listeners,
-                    self._display_unit,
-                    scanning_mode=BluetoothScanningMode.PASSIVE,
-                    bleak_scanner_backend=scanner,
-                    logger=library_logger,
-                )
+                if self._scale_model == ScaleModel.ESF24 and ESF24Scale is not None:
+                    _LOGGER.debug("Initializing new ESF24Scale client (experimental)")
+                    self._client = ESF24Scale(
+                        self.address,
+                        self.update_listeners,
+                        self._display_unit,
+                        scanning_mode=BluetoothScanningMode.PASSIVE,
+                        bleak_scanner_backend=scanner,
+                        logger=library_logger,
+                    )
+                elif self._scale_model == ScaleModel.ESF551 and ESF551Scale is not None:
+                    _LOGGER.debug("Initializing new ESF551Scale client")
+                    self._client = ESF551Scale(
+                        self.address,
+                        self.update_listeners,
+                        self._display_unit,
+                        scanning_mode=BluetoothScanningMode.PASSIVE,
+                        bleak_scanner_backend=scanner,
+                        logger=library_logger,
+                    )
+                else:
+                    # Fallback: use generic client (e.g. library < 0.4 or unknown model)
+                    _LOGGER.debug(
+                        "Initializing new EtekcitySmartFitnessScale client (scale_model=%s)",
+                        self._scale_model,
+                    )
+                    self._client = EtekcitySmartFitnessScale(
+                        self.address,
+                        self.update_listeners,
+                        self._display_unit,
+                        scanning_mode=BluetoothScanningMode.PASSIVE,
+                        bleak_scanner_backend=scanner,
+                        logger=library_logger,
+                    )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")

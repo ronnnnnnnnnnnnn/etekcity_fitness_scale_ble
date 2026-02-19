@@ -36,6 +36,7 @@ from .const import (
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
+    CONF_SCALE_MODEL,
     CONF_SEX,
     CONF_UPDATED_AT,
     CONF_USER_ID,
@@ -45,6 +46,8 @@ from .const import (
     DOMAIN,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
+    SCALE_DETECTION_PATTERNS,
+    ScaleModel,
     get_sensor_unique_id,
 )
 from .sensor import SENSOR_DESCRIPTIONS
@@ -52,6 +55,34 @@ from .sensor import SENSOR_DESCRIPTIONS
 _LOGGER = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"[^a-z0-9]")
+
+
+def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
+    """Detect the scale model based on advertisement data.
+
+    Args:
+        discovery_info: The Bluetooth service info for the discovered device.
+
+    Returns:
+        The detected scale model.
+    """
+    # Check for ESF-24 first (more specific pattern)
+    esf24_pattern = SCALE_DETECTION_PATTERNS[ScaleModel.ESF24]
+    if discovery_info.name and discovery_info.name == esf24_pattern["local_name"]:
+        _LOGGER.debug("Detected ESF-24 scale: %s", discovery_info.name)
+        return ScaleModel.ESF24
+
+    # Check for ESF-551
+    esf551_pattern = SCALE_DETECTION_PATTERNS[ScaleModel.ESF551]
+    if discovery_info.name:
+        pattern = esf551_pattern.get("local_name_pattern", "").replace("*", ".*")
+        if re.search(pattern, discovery_info.name, re.IGNORECASE):
+            _LOGGER.debug("Detected ESF-551 scale: %s", discovery_info.name)
+            return ScaleModel.ESF551
+
+    # Default to ESF-551 for backward compatibility
+    _LOGGER.debug("Unknown scale model, defaulting to ESF-551: %s", discovery_info.name)
+    return ScaleModel.ESF551
 
 
 def _get_mobile_notify_services(hass) -> dict[str, str]:
@@ -285,6 +316,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
 
+        # Detect scale model from advertisement data
+        scale_model = detect_scale_model(discovery_info)
+        self.context["scale_model"] = scale_model
+
         self.context["title_placeholders"] = {"name": title(discovery_info)}
 
         return await self.async_step_bluetooth_confirm()
@@ -293,16 +328,25 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Confirm discovery."""
-        if user_input is not None:
-            # Store display unit in context
-            self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
+        scale_model = self.context.get("scale_model", ScaleModel.ESF551)
 
-            # Always proceed to create first user (required)
+        if user_input is not None:
+            # Store display unit and proceed to add first user (same flow for ESF24 and ESF551)
+            self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
             return await self.async_step_add_first_user()
+
+        # Show confirmation form (same for both models; esf24_note adds context when ESF-24)
+        description_placeholders = dict(self.context["title_placeholders"])
+        if scale_model == ScaleModel.ESF24:
+            description_placeholders["esf24_note"] = (
+                " (ESF-24 detected - experimental support, weight only)"
+            )
+        else:
+            description_placeholders["esf24_note"] = ""
 
         return self.async_show_form(
             step_id="bluetooth_confirm",
-            description_placeholders=self.context["title_placeholders"],
+            description_placeholders=description_placeholders,
             data_schema=vol.Schema(
                 {
                     vol.Required(
@@ -357,6 +401,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Add first user during initial setup."""
+        scale_model = self.context.get("scale_model", ScaleModel.ESF551)
+
         if user_input is not None:
             user_name = user_input[CONF_USER_NAME]
             person_entity = user_input.get(CONF_PERSON_ENTITY)
@@ -385,9 +431,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                         available_mobile_services
                     )
 
-                schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
-                    cv.boolean
-                )
+                if scale_model == ScaleModel.ESF551:
+                    schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
+                        cv.boolean
+                    )
 
                 return self.async_show_form(
                     step_id="add_first_user",
@@ -395,8 +442,13 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors=errors,
                 )
 
-            # Check if body metrics is enabled
-            if user_input.get(CONF_BODY_METRICS_ENABLED, False):
+            # Check if body metrics is enabled (ESF24 does not support body metrics)
+            body_metrics_enabled = (
+                user_input.get(CONF_BODY_METRICS_ENABLED, False)
+                if scale_model == ScaleModel.ESF551
+                else False
+            )
+            if body_metrics_enabled:
                 # Store basic user info in context and proceed to body metrics
                 self.context[CONF_USER_NAME] = user_name
                 self.context[CONF_PERSON_ENTITY] = user_input.get(CONF_PERSON_ENTITY)
@@ -405,7 +457,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 return await self.async_step_add_first_user_body_metrics()
 
-            # No body metrics - create entry with basic user profile
+            # No body metrics (or ESF24) - create entry with basic user profile
             user_profile = {
                 CONF_USER_ID: _create_user_id(user_name, []),
                 CONF_USER_NAME: user_name,
@@ -413,7 +465,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_MOBILE_NOTIFY_SERVICES: user_input.get(
                     CONF_MOBILE_NOTIFY_SERVICES, []
                 ),
-                CONF_BODY_METRICS_ENABLED: False,
+                CONF_BODY_METRICS_ENABLED: body_metrics_enabled,
                 CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -424,6 +476,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_SCALE_DISPLAY_UNIT: self.context[CONF_SCALE_DISPLAY_UNIT],
                     CONF_USER_PROFILES: [user_profile],
+                    CONF_SCALE_MODEL: self.context.get(
+                        "scale_model", ScaleModel.ESF551
+                    ),
                 },
             )
 
@@ -444,7 +499,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 available_mobile_services
             )
 
-        schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
+        if scale_model == ScaleModel.ESF551:
+            schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_first_user",
@@ -498,6 +554,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_SCALE_DISPLAY_UNIT: self.context[CONF_SCALE_DISPLAY_UNIT],
                     CONF_USER_PROFILES: [user_profile],
+                    CONF_SCALE_MODEL: self.context.get(
+                        "scale_model", ScaleModel.ESF551
+                    ),
                 },
             )
 
@@ -591,11 +650,13 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             discovery = self._discovered_devices[address]
 
-            # Store display unit and title in context
-            self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
+            # Detect scale model for manual discovery
+            scale_model = detect_scale_model(discovery.discovery_info)
+            self.context["scale_model"] = scale_model
             self.context["title_placeholders"] = {"name": discovery.title}
 
-            # Always proceed to create first user (required)
+            # Store display unit and proceed to add first user (same flow for ESF24 and ESF551)
+            self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
             return await self.async_step_add_first_user()
 
         current_addresses = self._async_current_ids()
@@ -604,11 +665,18 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             if address in current_addresses or address in self._discovered_devices:
                 continue
 
-            # Filter for Etekcity scales (Manufacturer ID 1744 or name match)
+            # Filter for Etekcity scales (Manufacturer ID 1744, name match, or ESF-24)
             is_etekcity = False
             if 1744 in discovery_info.manufacturer_data:
                 is_etekcity = True
-            elif discovery_info.name.lower().startswith("etekcity"):
+            elif discovery_info.name and discovery_info.name.lower().startswith(
+                "etekcity"
+            ):
+                is_etekcity = True
+            elif (
+                discovery_info.name
+                == SCALE_DETECTION_PATTERNS[ScaleModel.ESF24]["local_name"]
+            ):
                 is_etekcity = True
 
             if not is_etekcity:
@@ -673,6 +741,7 @@ class ScaleOptionsFlow(OptionsFlow):
         self.display_unit = config_entry.data.get(
             CONF_SCALE_DISPLAY_UNIT, UnitOfMass.KILOGRAMS
         )
+        self.scale_model = config_entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
         self.history_retention_days = config_entry.data.get(
             CONF_HISTORY_RETENTION_DAYS, HISTORY_RETENTION_DAYS
         )
@@ -732,9 +801,10 @@ class ScaleOptionsFlow(OptionsFlow):
                         available_mobile_services
                     )
 
-                schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
-                    cv.boolean
-                )
+                if self.scale_model == ScaleModel.ESF551:
+                    schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
+                        cv.boolean
+                    )
 
                 return self.async_show_form(
                     step_id="add_user",
@@ -742,8 +812,13 @@ class ScaleOptionsFlow(OptionsFlow):
                     errors=errors,
                 )
 
-            # Check if body metrics is enabled
-            if user_input.get(CONF_BODY_METRICS_ENABLED, False):
+            # Check if body metrics is enabled (ESF24 does not support body metrics)
+            body_metrics_enabled = (
+                user_input.get(CONF_BODY_METRICS_ENABLED, False)
+                if self.scale_model == ScaleModel.ESF551
+                else False
+            )
+            if body_metrics_enabled:
                 # Store basic user info in options context and proceed to body metrics
                 self.context[CONF_USER_NAME] = user_name
                 self.context[CONF_PERSON_ENTITY] = user_input.get(CONF_PERSON_ENTITY)
@@ -760,7 +835,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 _LOGGER.error("Generated duplicate user_id: %s", new_user_id)
                 return self.async_abort(reason="user_id_generation_failed")
 
-            # No body metrics - create basic user profile
+            # No body metrics (or ESF24) - create basic user profile
             user_profile = {
                 CONF_USER_ID: new_user_id,
                 CONF_USER_NAME: user_name,
@@ -768,7 +843,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_MOBILE_NOTIFY_SERVICES: user_input.get(
                     CONF_MOBILE_NOTIFY_SERVICES, []
                 ),
-                CONF_BODY_METRICS_ENABLED: False,
+                CONF_BODY_METRICS_ENABLED: body_metrics_enabled,
                 CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -804,7 +879,8 @@ class ScaleOptionsFlow(OptionsFlow):
                 available_mobile_services
             )
 
-        schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
+        if self.scale_model == ScaleModel.ESF551:
+            schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_user",
@@ -1021,13 +1097,14 @@ class ScaleOptionsFlow(OptionsFlow):
                         )
                     ] = cv.multi_select(available_mobile_services)
 
-                # Add body metrics toggle last
-                schema[
-                    vol.Required(
-                        CONF_BODY_METRICS_ENABLED,
-                        default=current_user.get(CONF_BODY_METRICS_ENABLED, False),
-                    )
-                ] = cv.boolean
+                # Add body metrics toggle last (ESF24 does not support body metrics)
+                if self.scale_model == ScaleModel.ESF551:
+                    schema[
+                        vol.Required(
+                            CONF_BODY_METRICS_ENABLED,
+                            default=current_user.get(CONF_BODY_METRICS_ENABLED, False),
+                        )
+                    ] = cv.boolean
 
                 return self.async_show_form(
                     step_id="edit_user_details",
@@ -1035,8 +1112,12 @@ class ScaleOptionsFlow(OptionsFlow):
                     errors=errors,
                 )
 
-            # Check if body metrics is being enabled/disabled
-            body_metrics_enabled = user_input.get(CONF_BODY_METRICS_ENABLED, False)
+            # Check if body metrics is being enabled/disabled (ESF24: always False)
+            body_metrics_enabled = (
+                user_input.get(CONF_BODY_METRICS_ENABLED, False)
+                if self.scale_model == ScaleModel.ESF551
+                else False
+            )
             currently_enabled = current_user.get(CONF_BODY_METRICS_ENABLED, False)
 
             # If disabling body metrics, remove associated entities
@@ -1123,13 +1204,14 @@ class ScaleOptionsFlow(OptionsFlow):
                 )
             ] = cv.multi_select(available_mobile_services)
 
-        # Add body metrics toggle last
-        schema[
-            vol.Required(
-                CONF_BODY_METRICS_ENABLED,
-                default=current_user.get(CONF_BODY_METRICS_ENABLED, False),
-            )
-        ] = cv.boolean
+        # Add body metrics toggle last (ESF24 does not support body metrics)
+        if self.scale_model == ScaleModel.ESF551:
+            schema[
+                vol.Required(
+                    CONF_BODY_METRICS_ENABLED,
+                    default=current_user.get(CONF_BODY_METRICS_ENABLED, False),
+                )
+            ] = cv.boolean
 
         return self.async_show_form(
             step_id="edit_user_details",
@@ -1333,8 +1415,14 @@ class ScaleOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Change scale settings."""
+        scale_model = self.config_entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
+
         if user_input is not None:
-            # Update settings
+            if scale_model == ScaleModel.ESF24:
+                # ESF24: No settings to update, just close the flow
+                return self.async_create_entry(title="", data={})
+
+            # ESF551: Update settings
             new_data = {
                 **self.config_entry.data,
                 CONF_SCALE_DISPLAY_UNIT: user_input[CONF_SCALE_DISPLAY_UNIT],
@@ -1348,8 +1436,19 @@ class ScaleOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data={})
 
+        if scale_model == ScaleModel.ESF24:
+            # ESF24: Show info that scale settings cannot be changed
+            return self.async_show_form(
+                step_id="scale_settings",
+                description_placeholders={
+                    "esf24_note": " ESF-24 scale configuration cannot be changed. This device only supports weight measurements in kilograms."
+                },
+                data_schema=vol.Schema({}),
+            )
+
         return self.async_show_form(
             step_id="scale_settings",
+            description_placeholders={"esf24_note": ""},
             data_schema=vol.Schema(
                 {
                     vol.Required(
