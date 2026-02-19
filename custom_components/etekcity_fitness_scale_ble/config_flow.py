@@ -1418,11 +1418,6 @@ class ScaleOptionsFlow(OptionsFlow):
         scale_model = self.config_entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
 
         if user_input is not None:
-            if scale_model == ScaleModel.ESF24:
-                # ESF24: No settings to update, just close the flow
-                return self.async_create_entry(title="", data={})
-
-            # ESF551: Update settings
             new_data = {
                 **self.config_entry.data,
                 CONF_SCALE_DISPLAY_UNIT: user_input[CONF_SCALE_DISPLAY_UNIT],
@@ -1436,24 +1431,22 @@ class ScaleOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data={})
 
+        display_unit = self.config_entry.data.get(
+            CONF_SCALE_DISPLAY_UNIT, UnitOfMass.KILOGRAMS
+        )
         if scale_model == ScaleModel.ESF24:
-            # ESF24: Show info that scale settings cannot be changed
-            return self.async_show_form(
-                step_id="scale_settings",
-                description_placeholders={
-                    "esf24_note": " ESF-24 scale configuration cannot be changed. This device only supports weight measurements in kilograms."
-                },
-                data_schema=vol.Schema({}),
-            )
+            description_placeholders = {
+                "esf24_note": " (ESF-24 - experimental support, weight only)"
+            }
+        else:
+            description_placeholders = {"esf24_note": ""}
 
         return self.async_show_form(
             step_id="scale_settings",
-            description_placeholders={"esf24_note": ""},
+            description_placeholders=description_placeholders,
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_SCALE_DISPLAY_UNIT, default=self.display_unit
-                    ): vol.In(
+                    vol.Required(CONF_SCALE_DISPLAY_UNIT, default=display_unit): vol.In(
                         {
                             UnitOfMass.KILOGRAMS: "Metric (kg)",
                             UnitOfMass.POUNDS: "Imperial (lbs)",
