@@ -25,6 +25,7 @@ from .const import (
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
+    CONF_SCALE_MODEL,
     CONF_SEX,
     CONF_UPDATED_AT,
     CONF_USER_ID,
@@ -32,6 +33,7 @@ from .const import (
     CONF_USER_PROFILES,
     CONF_WEIGHT_HISTORY,
     DOMAIN,
+    ScaleModel,
 )
 from homeassistant.exceptions import ConfigEntryNotReady
 
@@ -235,7 +237,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Get user profiles from config entry
     user_profiles = deepcopy(entry.data.get(CONF_USER_PROFILES, []))
 
-    coordinator = ScaleDataUpdateCoordinator(hass, address, user_profiles, entry.title)
+    # Get scale model from config entry, default to ESF551 for backward compatibility
+    scale_model = entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
+
+    coordinator = ScaleDataUpdateCoordinator(
+        hass, address, user_profiles, entry.title, scale_model
+    )
     coordinator.set_config_entry_id(entry.entry_id)
 
     hass.data[DOMAIN][entry.entry_id] = coordinator

@@ -53,6 +53,7 @@ from .const import (
     CONF_WEIGHT_HISTORY,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
+    ScaleModel,
 )
 from .person_detector import PersonDetector
 
@@ -640,6 +641,7 @@ class ScaleDataUpdateCoordinator:
         address: str,
         user_profiles: list[dict],
         device_name: str,
+        scale_model: ScaleModel = ScaleModel.ESF551,
     ) -> None:
         """Initialize the ScaleDataUpdateCoordinator.
 
@@ -648,10 +650,12 @@ class ScaleDataUpdateCoordinator:
             address: The Bluetooth address of the scale.
             user_profiles: list of user profile dictionaries.
             device_name: The device name used for entity ID construction.
+            scale_model: The detected scale model.
         """
         self.address = address
         self._hass = hass
         self._device_name = device_name
+        self._scale_model = scale_model
         self._lock = asyncio.Lock()
         self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
         # Diagnostic-only listeners that don't receive scale data (just notifications to refresh)
