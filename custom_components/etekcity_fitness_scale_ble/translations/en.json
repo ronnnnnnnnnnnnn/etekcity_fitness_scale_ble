@@ -10,7 +10,7 @@
                 }
             },
             "bluetooth_confirm": {
-                "description": "Configure device options",
+                "description": "Configure device options{esf24_note}",
                 "data": {
                     "scale_display_unit": "Scale Display Unit"
                 }
@@ -138,7 +138,7 @@
             },
             "scale_settings": {
                 "title": "Scale Settings",
-                "description": "Configure scale display unit",
+                "description": "Configure scale display unit{esf24_note}",
                 "data": {
                     "scale_display_unit": "Scale Display Unit"
                 }
