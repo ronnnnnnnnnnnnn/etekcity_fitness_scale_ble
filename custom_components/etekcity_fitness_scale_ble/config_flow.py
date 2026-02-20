@@ -94,9 +94,7 @@ def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
                 "Detected %s scale: %s", scale_model.value, discovery_info.name
             )
             return scale_model
-    _LOGGER.debug(
-        "No matcher matched, defaulting to ESF-551: %s", discovery_info.name
-    )
+    _LOGGER.debug("No matcher matched, defaulting to ESF-551: %s", discovery_info.name)
     return ScaleModel.ESF551
 
 
