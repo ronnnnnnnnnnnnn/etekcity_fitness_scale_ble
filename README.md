@@ -1,18 +1,19 @@
 # Etekcity Fitness Scale BLE Integration for Home Assistant
 
-This custom integration allows you to connect your Etekcity Bluetooth Low Energy (BLE) fitness scale to Home Assistant. It provides real-time weight measurements and body composition metrics directly in your Home Assistant instance, without requiring an internet connection or the VeSync app.
+This custom integration allows you to connect your Etekcity Bluetooth Low Energy (BLE) fitness scale to Home Assistant. It provides real-time weight measurements and, for supported models, body composition metrics directly in your Home Assistant instance, without requiring an internet connection or the VeSync app.
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/ronnnnnnn)
 
 ## Features
 
+- **Supported models:** ESF-551 (full features: weight, impedance, body composition) and ESF-24 (weight and display unit; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
     - Uses an adaptive tolerance system that adjusts to each user's weight fluctuations over time.
     - Supports linking users to Home Assistant Person entities to exclude users who are `not_home`.
 - Real-time weight and impedance measurements
-- Optional body composition metrics calculation including:
+- Optional body composition metrics (ESF-551 only) including:
     - Body Mass Index (BMI)
     - Body Fat Percentage
     - Fat Free Weight
@@ -31,7 +32,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 ## Notes
 
 - This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
-- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library for communication with the scale.
+- **ESF-24** scales receive weight sensors and display unit settings only; body composition is not currently supported for this model.
+- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (0.4.x) for communication with the scale.
 
 ## Installation
 
@@ -58,8 +60,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 3. Search for "Etekcity Fitness Scale BLE" and select it.
 4. Follow the configuration steps:
     - Choose your preferred unit system (Metric or Imperial)
-    - Optionally enable body composition metrics
-    - If body composition is enabled:
+    - For **ESF-551** only: optionally enable body composition metrics
+    - If body composition is enabled (ESF-551):
         - Select your sex
         - Enter your date of birth
         - Enter your height
@@ -78,7 +80,7 @@ When adding or editing user profiles (**Settings > Devices & Services > Etekcity
   - When enabled, you'll receive a mobile notification with tap-to-assign buttons directly on your phone
   - Each candidate user gets a personalized notification with "This is me" and "Not me" buttons
 
-- **Enable body composition metrics:** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth, and height.
+- **Enable body composition metrics (ESF-551 only):** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth, and height. Not available for ESF-24.
 
 ## Multi-User Support
 
@@ -163,9 +165,12 @@ The integration creates two diagnostic sensors to provide visibility into its st
 
 ## Supported Devices
 
-This integration has been tested with the following Etekcity scale models:
+This integration supports the following Etekcity scale models:
 
-- [ESF-551 (Smart Fitness Scale)](https://etekcity.com/products/smart-fitness-scale-esf551)
+| Model | Status | Features |
+|-------|--------|----------|
+| [ESF-551 (Smart Fitness Scale)](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
+| ESF-24 | Experimental | Weight, display unit |
 
 Other Etekcity BLE fitness scale models may work but have not been tested. If you try it with a different model, please let me know whether it works or not.
 
