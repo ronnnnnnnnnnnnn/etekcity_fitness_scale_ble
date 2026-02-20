@@ -22,14 +22,15 @@ class ScaleModel(StrEnum):
     ESF24 = "ESF-24"
 
 
-# Detection patterns for different scale models
-SCALE_DETECTION_PATTERNS = {
-    ScaleModel.ESF24: {"local_name": "QN-Scale1"},
-    ScaleModel.ESF551: {
-        "local_name_pattern": "Etekcity *Fitness *Scale*",
-        "manufacturer_id": 1744,
-    },
-}
+# Bluetooth matchers: single source of truth aligned with manifest.json "bluetooth" entries.
+# Order matters: first match wins for model detection. Each entry is (ScaleModel, manufacturer_id|None, local_name_pattern).
+# local_name_pattern uses fnmatch syntax (e.g. "*" for wildcard).
+BLUETOOTH_MATCHERS: list[tuple[ScaleModel, int | None, str]] = [
+    (ScaleModel.ESF24, None, "QN-Scale1"),
+    (ScaleModel.ESF24, None, "04:AC:44:*"),
+    (ScaleModel.ESF551, 1744, "Etekcity *Fitness *Scale*"),
+    (ScaleModel.ESF551, 1744, "D0:4D:00:*"),
+]
 
 # Multi-user constants (v2+)
 CONF_SCALE_DISPLAY_UNIT = "scale_display_unit"

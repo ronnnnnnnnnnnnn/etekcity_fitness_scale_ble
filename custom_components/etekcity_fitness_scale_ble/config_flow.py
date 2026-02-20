@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
+import fnmatch
 import logging
 import re
 import unicodedata
@@ -43,10 +44,10 @@ from .const import (
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     CONF_WEIGHT_HISTORY,
+    BLUETOOTH_MATCHERS,
     DOMAIN,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
-    SCALE_DETECTION_PATTERNS,
     ScaleModel,
     get_sensor_unique_id,
 )
@@ -57,31 +58,45 @@ _LOGGER = logging.getLogger(__name__)
 _SLUG_RE = re.compile(r"[^a-z0-9]")
 
 
+def _device_matches_matcher(
+    discovery_info: BluetoothServiceInfo,
+    manufacturer_id: int | None,
+    local_name_pattern: str,
+) -> bool:
+    """Return True if discovery_info matches the given Bluetooth matcher."""
+    if manufacturer_id is not None and (
+        not discovery_info.manufacturer_data
+        or manufacturer_id not in discovery_info.manufacturer_data
+    ):
+        return False
+    name = discovery_info.name
+    if not name:
+        return False
+    return fnmatch.fnmatch(name.lower(), local_name_pattern.lower())
+
+
+def _device_matches_any_matcher(discovery_info: BluetoothServiceInfo) -> bool:
+    """Return True if discovery_info matches any of our Bluetooth matchers (manifest)."""
+    return any(
+        _device_matches_matcher(discovery_info, mfr_id, name_pattern)
+        for _, mfr_id, name_pattern in BLUETOOTH_MATCHERS
+    )
+
+
 def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
     """Detect the scale model based on advertisement data.
 
-    Args:
-        discovery_info: The Bluetooth service info for the discovered device.
-
-    Returns:
-        The detected scale model.
+    Uses BLUETOOTH_MATCHERS (aligned with manifest.json); first match wins.
     """
-    # Check for ESF-24 first (more specific pattern)
-    esf24_pattern = SCALE_DETECTION_PATTERNS[ScaleModel.ESF24]
-    if discovery_info.name and discovery_info.name == esf24_pattern["local_name"]:
-        _LOGGER.debug("Detected ESF-24 scale: %s", discovery_info.name)
-        return ScaleModel.ESF24
-
-    # Check for ESF-551
-    esf551_pattern = SCALE_DETECTION_PATTERNS[ScaleModel.ESF551]
-    if discovery_info.name:
-        pattern = esf551_pattern.get("local_name_pattern", "").replace("*", ".*")
-        if re.search(pattern, discovery_info.name, re.IGNORECASE):
-            _LOGGER.debug("Detected ESF-551 scale: %s", discovery_info.name)
-            return ScaleModel.ESF551
-
-    # Default to ESF-551 for backward compatibility
-    _LOGGER.debug("Unknown scale model, defaulting to ESF-551: %s", discovery_info.name)
+    for scale_model, manufacturer_id, local_name_pattern in BLUETOOTH_MATCHERS:
+        if _device_matches_matcher(discovery_info, manufacturer_id, local_name_pattern):
+            _LOGGER.debug(
+                "Detected %s scale: %s", scale_model.value, discovery_info.name
+            )
+            return scale_model
+    _LOGGER.debug(
+        "No matcher matched, defaulting to ESF-551: %s", discovery_info.name
+    )
     return ScaleModel.ESF551
 
 
@@ -665,21 +680,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             if address in current_addresses or address in self._discovered_devices:
                 continue
 
-            # Filter for Etekcity scales (Manufacturer ID 1744, name match, or ESF-24)
-            is_etekcity = False
-            if 1744 in discovery_info.manufacturer_data:
-                is_etekcity = True
-            elif discovery_info.name and discovery_info.name.lower().startswith(
-                "etekcity"
-            ):
-                is_etekcity = True
-            elif (
-                discovery_info.name
-                == SCALE_DETECTION_PATTERNS[ScaleModel.ESF24]["local_name"]
-            ):
-                is_etekcity = True
-
-            if not is_etekcity:
+            # Filter: include only devices matching our Bluetooth matchers (manifest)
+            if not _device_matches_any_matcher(discovery_info):
                 continue
 
             _LOGGER.debug("Found BT Scale")
