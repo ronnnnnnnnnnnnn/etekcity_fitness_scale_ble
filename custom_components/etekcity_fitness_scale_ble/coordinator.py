@@ -1854,7 +1854,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user (newest measurement scenario)
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble.body_metrics import (
+                from etekcity_esf551_ble.esf551.body_metrics import (
                     BodyMetrics,
                     Sex,
                     _as_dictionary,
@@ -2384,7 +2384,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble.body_metrics import (
+                from etekcity_esf551_ble.esf551.body_metrics import (
                     BodyMetrics,
                     Sex,
                     _as_dictionary,
