@@ -169,8 +169,13 @@ This integration supports the following Etekcity scale models:
 
 | Model | Status | Features |
 |-------|--------|----------|
-| [ESF-551 (Smart Fitness Scale)](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
-| ESF-24 | Experimental | Weight, display unit |
+| [ESF-551 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
+| [ESF-24 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf24) | Experimental | Weight, display unit |
+
+*As an Amazon Associate I earn from qualifying purchases.*
+
+**Where to buy (ESF-551):** [🇺🇸 US](https://www.amazon.com/dp/B095YJW56C?tag=ronnnnnnn-20) · [🇬🇧 UK](https://www.amazon.co.uk/dp/B095YJW56C?tag=ronnnnnnn02-21) · [🇪🇸 ES](https://www.amazon.es/dp/B095YJW56C?tag=ronnnnnnn-21) · [🇫🇷 FR](https://www.amazon.fr/dp/B095YJW56C?tag=ronnnnnnn0b-21)  
+**Where to buy (ESF-24):** [🇺🇸 US](https://www.amazon.com/dp/B07D7R25JV?tag=ronnnnnnn-20) · [🇮🇹 IT](https://www.amazon.it/dp/B07D7R25JV?tag=ronnnnnnn0a-21) · [🇫🇷 FR](https://www.amazon.fr/dp/B07D7R25JV?tag=ronnnnnnn0b-21)
 
 Other Etekcity BLE fitness scale models may work but have not been tested. If you try it with a different model, please let me know whether it works or not.
 
