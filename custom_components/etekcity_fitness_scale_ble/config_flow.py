@@ -11,6 +11,7 @@ import unicodedata
 from typing import Any
 
 import voluptuous as vol
+from voluptuous.schema_builder import Marker
 
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfo,
@@ -576,7 +577,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         # Build schema based on display unit
         display_unit = self.context[CONF_SCALE_DISPLAY_UNIT]
 
-        schema = {
+        schema: dict[Marker, Any] = {
             vol.Required(CONF_SEX): vol.In(["Male", "Female"]),
             vol.Required(CONF_BIRTHDATE): selector.TextSelector(
                 selector.TextSelectorConfig(

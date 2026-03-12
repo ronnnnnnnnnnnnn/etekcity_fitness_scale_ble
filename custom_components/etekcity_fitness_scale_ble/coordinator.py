@@ -47,6 +47,7 @@ from homeassistant.components import persistent_notification
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.const import UnitOfMass
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
@@ -84,6 +85,12 @@ if IS_LINUX:
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _norm_country_code(config: Any) -> str:
+    """Extract normalized 2-letter country code from HA config."""
+    raw = (getattr(config, "country", None) or "").upper()
+    return raw[:2] if len(raw) >= 2 else ""
 
 
 class BluetoothNotAvailableError(Exception):
@@ -741,6 +748,110 @@ class ScaleDataUpdateCoordinator:
         """
         return self._display_unit if self._display_unit is not None else WeightUnit.KG
 
+    # Countries that typically use 12-hour time (HA backend does not expose
+    # per-user time format; use country as heuristic).
+    _COUNTRY_12H: frozenset[str] = frozenset({"US", "CA", "PH", "AU"})
+
+    def _get_display_preferences(self) -> tuple[str, str | None, str | None]:
+        """Return (language, time_format, date_format) from HA config.
+
+        time_format: '12' | '24' | None. If not set on config, inferred from
+            hass.config.country (12h for US, CA, PH, AU; 24h otherwise).
+        date_format: 'dmy' | 'mdy' | 'ymd' | None only when explicitly set;
+            we do not infer from country so that we can use an unambiguous
+            spelled-out date (e.g. "Mar 8, 2026") when date_format is None.
+        """
+        config = getattr(self._hass, "config", None)
+        if config is None:
+            return "en", None, None
+        language = getattr(config, "language", None) or "en"
+        time_fmt = getattr(config, "time_format", None)
+        if time_fmt in ("language", "auto", ""):
+            time_fmt = None
+        date_fmt = getattr(config, "date_format", None)
+        if date_fmt in ("language", "auto", ""):
+            date_fmt = None
+        country = _norm_country_code(config)
+        if time_fmt is None and country:
+            time_fmt = "12" if country in self._COUNTRY_12H else "24"
+        return language, time_fmt, date_fmt
+
+    def _format_time_part(
+        self, localized: datetime, time_format: str | None, include_seconds: bool
+    ) -> str | None:
+        """Format time part from display preferences. Returns None if Babel should be used."""
+        if time_format == "24":
+            fmt = "%H:%M:%S" if include_seconds else "%H:%M"
+            return localized.strftime(fmt)
+        if time_format == "12":
+            fmt = "%I:%M:%S %p" if include_seconds else "%I:%M %p"
+            return localized.strftime(fmt).lstrip("0")
+        return None
+
+    def _format_date_unambiguous(self, localized: datetime, language: str) -> str:
+        """Format date with spelled month (e.g. Mar 8, 2026) for clarity."""
+        try:
+            from babel.dates import format_date as babel_format_date
+
+            return babel_format_date(
+                localized,
+                format="medium",
+                locale=language.replace("-", "_"),
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Babel format_date failed (locale=%s), using strftime fallback: %s",
+                language,
+                err,
+            )
+            return localized.strftime("%b %d, %Y")
+
+    def _format_notification_timestamp(self, timestamp_str: str) -> str:
+        """Format timestamp for display in notifications."""
+        try:
+            localized = dt_util.as_local(datetime.fromisoformat(timestamp_str))
+        except (ValueError, TypeError):
+            return timestamp_str
+        language, time_format, date_format = self._get_display_preferences()
+        if date_format is not None:
+            date_patterns = {
+                "dmy": "%d/%m/%Y",
+                "mdy": "%m/%d/%Y",
+                "ymd": "%Y-%m-%d",
+            }
+            date_part = date_patterns.get((date_format or "").lower(), "%b %d, %Y")
+            time_fmt = "%H:%M:%S" if time_format == "24" else "%I:%M:%S %p"
+            return localized.strftime(f"{date_part} at {time_fmt} %Z")
+        time_str = self._format_time_part(localized, time_format, True)
+        if time_str is None:
+            time_str = localized.strftime("%I:%M:%S %p").lstrip("0")
+        date_str = self._format_date_unambiguous(localized, language)
+        return f"{date_str} at {time_str} {localized.strftime('%Z')}"
+
+    def _format_notification_time(self, timestamp_str: str) -> str:
+        """Format time for mobile notifications."""
+        try:
+            localized = dt_util.as_local(datetime.fromisoformat(timestamp_str))
+        except (ValueError, TypeError):
+            return timestamp_str
+        language, time_format, _date_fmt = self._get_display_preferences()
+        time_str = self._format_time_part(localized, time_format, False)
+        if time_str is not None:
+            return time_str
+        try:
+            from babel.dates import format_datetime as babel_format_datetime
+
+            return babel_format_datetime(
+                localized, format="short", locale=language.replace("-", "_")
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Babel format_datetime failed (locale=%s), using strftime fallback: %s",
+                language,
+                err,
+            )
+            return localized.strftime("%I:%M %p").lstrip("0")
+
     def set_config_entry_id(self, config_entry_id: str) -> None:
         """Set the config entry ID for persistence.
 
@@ -802,7 +913,7 @@ class ScaleDataUpdateCoordinator:
         from homeassistant.util.unit_conversion import MassConverter
         from homeassistant.const import UnitOfMass
 
-        history = self.get_user_history(user_id)
+        history = self.get_user_history(user_id)[-20:]
         display_unit = self.get_display_unit()
         is_pounds = display_unit == WeightUnit.LB
 
@@ -1988,9 +2099,8 @@ class ScaleDataUpdateCoordinator:
             # Default to kg if display_unit is None or WeightUnit.KG
             weight_display = f"{weight_kg:.1f} kg"
 
-        # Format time
-        dt = datetime.fromisoformat(timestamp)
-        time_display = dt.strftime("%I:%M %p").lstrip("0")
+        # Format time using display preferences (country heuristic, Babel fallback)
+        time_display = self._format_notification_time(timestamp)
 
         # Notification tag (unique per measurement)
         tag = f"scale_measurement_{timestamp}"
@@ -2292,11 +2402,12 @@ class ScaleDataUpdateCoordinator:
         if impedance is not None:
             measurement_info += f"  \nImpedance: **{impedance:.0f} Ω**"
 
+        timestamp_display = self._format_notification_timestamp(timestamp)
         message = (
             f"**Scale: {device_name}**\n\n"
             f"**Multiple users could match this measurement**\n\n"
             f"{measurement_info}\n"
-            f"Timestamp: `{timestamp}`\n\n"
+            f"Timestamp: `{timestamp_display}`\n\n"
             f"{user_list_str}\n\n"
             "**To assign this measurement:**\n"
             "1. Copy the service call below\n"
@@ -2551,6 +2662,99 @@ class ScaleDataUpdateCoordinator:
         # Notify diagnostic sensors about pending measurements update
         self._notify_diagnostic_sensors()
 
+        return True
+
+    def ignore_candidate_for_pending_measurement(
+        self, timestamp: str, user_id: str
+    ) -> bool:
+        """Remove a user from candidates for a pending measurement.
+
+        When "Not Me" is pressed on a mobile notification, this updates the
+        notification by removing that user from the candidate list. If no
+        candidates remain, the notification is dismissed.
+
+        Args:
+            timestamp: ISO timestamp of the pending measurement.
+            user_id: The user ID to remove from candidates.
+
+        Returns:
+            True if the candidate was removed and notification was updated.
+        """
+        pending_data = self._pending_measurements.get(timestamp)
+        if pending_data is None:
+            return False
+
+        candidates = pending_data["candidates"]
+        updated_candidates = [c for c in candidates if c != user_id]
+        if len(updated_candidates) == len(candidates):
+            return False
+
+        if not updated_candidates:
+            # No candidates left - dismiss notification and remove pending
+            del self._pending_measurements[timestamp]
+            self._ambiguous_notifications.discard(timestamp)
+            notification_id = f"etekcity_scale_{self.address}_{timestamp}"
+            persistent_notification.dismiss(
+                self._hass,
+                notification_id=notification_id,
+            )
+            tag = f"scale_measurement_{timestamp}"
+            for _uid, service_name in pending_data.get("notified_mobile_services", []):
+                self._hass.async_create_task(
+                    self._hass.services.async_call(
+                        "notify",
+                        service_name,
+                        {"message": "clear_notification", "data": {"tag": tag}},
+                    )
+                )
+            self._notify_diagnostic_sensors()
+            return True
+
+        # Update candidates and re-send notification
+        pending_data["candidates"] = updated_candidates
+        old_notified = list(pending_data.get("notified_mobile_services", []))
+        pending_data["notified_mobile_services"] = []
+
+        # Clear old mobile notifications
+        tag = f"scale_measurement_{timestamp}"
+        for _uid, service_name in old_notified:
+            self._hass.async_create_task(
+                self._hass.services.async_call(
+                    "notify",
+                    service_name,
+                    {"message": "clear_notification", "data": {"tag": tag}},
+                )
+            )
+
+        # Dismiss persistent notification
+        notification_id = f"etekcity_scale_{self.address}_{timestamp}"
+        persistent_notification.dismiss(
+            self._hass,
+            notification_id=notification_id,
+        )
+
+        # Re-create notification with updated candidates
+        measurements = pending_data["measurements"]
+        weight_kg = measurements.get("weight")
+        impedance = measurements.get("impedance")
+
+        async def _recreate_notification() -> None:
+            try:
+                await self._create_ambiguous_notification(
+                    weight_kg,
+                    impedance,
+                    updated_candidates,
+                    timestamp,
+                )
+            except Exception as ex:
+                _LOGGER.error(
+                    "Failed to re-create notification after ignore (timestamp: %s): %s",
+                    timestamp,
+                    ex,
+                )
+
+        self._hass.async_create_task(_recreate_notification())
+        self._notify_diagnostic_sensors()
         return True
 
     def reassign_user_measurement(

@@ -606,14 +606,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 user_id, timestamp = decoded
 
-                # For "Not Me" action, we just log it
-                # The notification is already dismissed by the mobile app
-                _LOGGER.debug(
-                    "User %s indicated measurement %s is not theirs (via mobile app)",
-                    user_id,
-                    timestamp,
-                )
-                # No further action needed - measurement remains pending for other users
+                # Find the coordinator that has this pending measurement
+                ignored = False
+                for coord in hass.data.get(DOMAIN, {}).values():
+                    if not isinstance(coord, ScaleDataUpdateCoordinator):
+                        continue
+
+                    if timestamp in coord.get_pending_measurements():
+                        valid_user_ids = [
+                            p.get(CONF_USER_ID)
+                            for p in coord.get_user_profiles()
+                            if p.get(CONF_USER_ID) is not None
+                        ]
+                        if user_id not in valid_user_ids:
+                            _LOGGER.warning(
+                                "User %s not found in coordinator for timestamp %s",
+                                user_id,
+                                timestamp,
+                            )
+                            continue
+
+                        try:
+                            if coord.ignore_candidate_for_pending_measurement(
+                                timestamp, user_id
+                            ):
+                                ignored = True
+                                _LOGGER.debug(
+                                    "User %s excluded from candidates for measurement %s (via mobile app)",
+                                    user_id,
+                                    timestamp,
+                                )
+                        except Exception as error:
+                            _LOGGER.warning(
+                                "Failed to ignore candidate %s for measurement %s: %s",
+                                user_id,
+                                timestamp,
+                                error,
+                            )
+                        break
+
+                if not ignored:
+                    _LOGGER.debug(
+                        "User %s indicated measurement %s is not theirs (via mobile app)",
+                        user_id,
+                        timestamp,
+                    )
             else:
                 _LOGGER.warning("Unknown scale action: %s", action)
 

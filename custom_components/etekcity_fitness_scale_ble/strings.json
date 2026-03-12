@@ -22,7 +22,8 @@
           "name": "User Name",
           "person_entity": "Person Entity (optional)",
           "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
-          "body_metrics_enabled": "Enable body composition metrics"
+          "body_metrics_enabled": "Enable body composition metrics",
+          "add_another_user": "Add another user after saving"
         },
         "data_description": {
           "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
@@ -37,7 +38,8 @@
           "height": "Height",
           "birthdate": "Date of Birth",
           "feet": "Height (feet)",
-          "inches": "Height (inches)"
+          "inches": "Height (inches)",
+          "add_another_user": "Add another user after saving"
         }
       },
       "body_metrics": {
