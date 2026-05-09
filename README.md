@@ -196,6 +196,20 @@ scan on
 
 (See [this GitHub issue](https://github.com/home-assistant/core/issues/76186#issuecomment-1204954485) for more information)
 
+## Reporting Issues
+
+Before opening a GitHub issue:
+
+1. **Check Settings → Repairs.** If a repair card explains the problem, the description tells you how to fix it without filing anything.
+2. **Download diagnostics.** Open **Settings → Devices & Services → Etekcity Fitness Scale BLE → your scale's device card → Download Diagnostics**. This produces a redacted JSON dump of your config, coordinator state, and pending measurements. Attach it to your issue.
+3. **Include version info:**
+   - Home Assistant version (Settings → About)
+   - Integration version (visible on the scale's device card under **Configuration**)
+   - Scale model (ESF551 or ESF24)
+4. **If it's a BLE / connection issue,** also enable **Enable Library Logging** in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
+
+Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues).
+
 ## Support the Project
 
 If you find this unofficial project helpful, consider buying me a coffee! Your support helps maintain and improve this integration.
