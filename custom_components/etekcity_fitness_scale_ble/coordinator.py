@@ -61,6 +61,7 @@ from .const import (
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
     ScaleModel,
+    parse_notify_service,
 )
 from .person_detector import PersonDetector
 
@@ -1553,9 +1554,10 @@ class ScaleDataUpdateCoordinator:
             tag = f"scale_measurement_{timestamp}"
             for user_id, service_name in notified_services:
                 try:
+                    notify_domain, notify_name = parse_notify_service(service_name)
                     await self._hass.services.async_call(
-                        "notify",
-                        service_name,
+                        notify_domain,
+                        notify_name,
                         {"message": "clear_notification", "data": {"tag": tag}},
                     )
                     _LOGGER.debug(
@@ -1721,9 +1723,10 @@ class ScaleDataUpdateCoordinator:
                 ) -> None:
                     """Safely clear notification with error handling."""
                     try:
+                        notify_domain, notify_name = parse_notify_service(service)
                         await self._hass.services.async_call(
-                            "notify",
-                            service,
+                            notify_domain,
+                            notify_name,
                             {
                                 "message": "clear_notification",
                                 "data": {"tag": notification_tag},
@@ -2248,9 +2251,10 @@ class ScaleDataUpdateCoordinator:
                         ", ".join(user_names),
                     )
 
+                notify_domain, notify_name = parse_notify_service(service_name)
                 await self._hass.services.async_call(
-                    "notify",
-                    service_name,
+                    notify_domain,
+                    notify_name,
                     {
                         "title": "❓ Unassigned Scale Measurement",
                         "message": message,
@@ -2653,10 +2657,11 @@ class ScaleDataUpdateCoordinator:
         # Dismiss all mobile notifications for this measurement
         tag = f"scale_measurement_{timestamp}"
         for user_id_notified, service_name in notified_services:
+            notify_domain, notify_name = parse_notify_service(service_name)
             self._hass.async_create_task(
                 self._hass.services.async_call(
-                    "notify",
-                    service_name,
+                    notify_domain,
+                    notify_name,
                     {"message": "clear_notification", "data": {"tag": tag}},
                 )
             )
@@ -2708,10 +2713,11 @@ class ScaleDataUpdateCoordinator:
             )
             tag = f"scale_measurement_{timestamp}"
             for _uid, service_name in pending_data.get("notified_mobile_services", []):
+                notify_domain, notify_name = parse_notify_service(service_name)
                 self._hass.async_create_task(
                     self._hass.services.async_call(
-                        "notify",
-                        service_name,
+                        notify_domain,
+                        notify_name,
                         {"message": "clear_notification", "data": {"tag": tag}},
                     )
                 )
@@ -2726,10 +2732,11 @@ class ScaleDataUpdateCoordinator:
         # Clear old mobile notifications
         tag = f"scale_measurement_{timestamp}"
         for _uid, service_name in old_notified:
+            notify_domain, notify_name = parse_notify_service(service_name)
             self._hass.async_create_task(
                 self._hass.services.async_call(
-                    "notify",
-                    service_name,
+                    notify_domain,
+                    notify_name,
                     {"message": "clear_notification", "data": {"tag": tag}},
                 )
             )

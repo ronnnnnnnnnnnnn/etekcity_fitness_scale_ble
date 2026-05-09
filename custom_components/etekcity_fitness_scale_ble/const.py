@@ -109,3 +109,18 @@ def get_sensor_unique_id(device_name: str, user_id: str, sensor_key: str) -> str
         return f"{device_name}_{sensor_key}"
     # v2 multi-user format
     return f"{device_name}_{user_id}_{sensor_key}"
+
+
+def parse_notify_service(stored: str) -> tuple[str, str]:
+    """Normalize a stored notify-service value into (domain, name).
+
+    The config flow stores the short form (e.g. "mobile_app_pixel_9a") and
+    the coordinator hardcodes the "notify" domain when sending. Tolerating
+    both forms here keeps the lookup, any existence checks, and the actual
+    services.async_call consistent if a stored value ever carries the
+    "notify." prefix.
+    """
+    if "." in stored:
+        domain, name = stored.split(".", 1)
+        return domain, name
+    return "notify", stored
