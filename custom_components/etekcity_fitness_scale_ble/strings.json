@@ -7,6 +7,20 @@
       }
     }
   },
+  "issues": {
+    "person_entity_missing": {
+      "title": "{user_name}: linked person entity no longer exists",
+      "description": "User **{user_name}** is linked to person entity `{person_entity}`, which no longer exists. Because the location filter excludes users whose person state isn't `home`, this user will be silently dropped from automatic measurement assignment.\n\nOpen **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure**, edit the user's profile, and either link a different person entity or clear the field."
+    },
+    "person_entity_unknown": {
+      "title": "{user_name}: linked person has no location",
+      "description": "User **{user_name}** is linked to person entity `{person_entity}`, but that person has no working device trackers, so its state is `unknown`. The location filter treats anything other than `home` as away, so this user will be silently dropped from automatic measurement assignment.\n\nFix it by either:\n\n- Going to **Settings → People**, opening `{person_entity}`, and assigning a device tracker to it (typically the user's phone via the Home Assistant companion app), **or**\n- Going to **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure** and clearing the **Person Entity** field on this user's profile."
+    },
+    "mobile_service_missing": {
+      "title": "{user_name}: mobile notify service `{service}` not found",
+      "description": "User **{user_name}** has `{service}` configured as a notification target, but Home Assistant doesn't know about that service. Actionable notifications sent to it will be silently dropped.\n\nThis usually means the Home Assistant companion app was removed from the phone, or the device has been renamed. Open **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure**, edit the user's profile, and update the **Mobile devices** field."
+    }
+  },
   "config": {
     "flow_title": "{name}",
     "step": {

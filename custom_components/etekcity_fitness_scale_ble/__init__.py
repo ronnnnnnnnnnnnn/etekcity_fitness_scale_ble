@@ -12,8 +12,9 @@ from bleak_retry_connector import close_stale_connections_by_address
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_UNIT_SYSTEM, Platform, UnitOfMass
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.start import async_at_started
 from urllib.parse import unquote
 
 from .const import (
@@ -38,6 +39,10 @@ from .const import (
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .coordinator import BluetoothNotAvailableError, ScaleDataUpdateCoordinator
+from .repairs import (
+    async_clear_repair_issues_for_entry,
+    async_scan_repair_issues,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -677,12 +682,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(coordinator.async_stop)
+
+    # Defer the repair scan until HA is fully started so that mobile_app
+    # has had a chance to register its notify.* services. Without the
+    # deferral, the mobile_service_missing check false-positives on cold
+    # boot. async_at_started fires immediately if HA is already running
+    # (e.g. on options-flow reload), so reloads still get an instant scan.
+    @callback
+    def _scan_when_ready(_hass: HomeAssistant) -> None:
+        async_scan_repair_issues(_hass, entry)
+
+    entry.async_on_unload(async_at_started(hass, _scan_when_ready))
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        async_clear_repair_issues_for_entry(hass, entry)
         coordinator: ScaleDataUpdateCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_stop()
         bluetooth.async_rediscover_address(hass, coordinator.address)
