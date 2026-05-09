@@ -264,7 +264,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_SEX,
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=["Male", "Female"],
+                    options=["male", "female"],
                     translation_key=CONF_SEX,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
@@ -291,7 +291,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_SEX,
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=["Male", "Female"],
+                    options=["male", "female"],
                     translation_key=CONF_SEX,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
@@ -578,7 +578,13 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         display_unit = self.context[CONF_SCALE_DISPLAY_UNIT]
 
         schema: dict[Marker, Any] = {
-            vol.Required(CONF_SEX): vol.In(["Male", "Female"]),
+            vol.Required(CONF_SEX): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["male", "female"],
+                    translation_key=CONF_SEX,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Required(CONF_BIRTHDATE): selector.TextSelector(
                 selector.TextSelectorConfig(
                     type=selector.TextSelectorType.DATE,
@@ -960,7 +966,13 @@ class ScaleOptionsFlow(OptionsFlow):
 
         # Build schema based on display unit
         schema = {
-            vol.Required(CONF_SEX): vol.In(["Male", "Female"]),
+            vol.Required(CONF_SEX): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["male", "female"],
+                    translation_key=CONF_SEX,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Required(CONF_BIRTHDATE): selector.TextSelector(
                 selector.TextSelectorConfig(
                     type=selector.TextSelectorType.DATE,
@@ -1287,8 +1299,15 @@ class ScaleOptionsFlow(OptionsFlow):
 
         # Build schema based on display unit
         schema = {
-            vol.Required(CONF_SEX, default=current_user.get(CONF_SEX, "Male")): vol.In(
-                ["Male", "Female"]
+            vol.Required(
+                CONF_SEX,
+                default=current_user.get(CONF_SEX, "male").lower(),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["male", "female"],
+                    translation_key=CONF_SEX,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
             vol.Required(
                 CONF_BIRTHDATE, default=current_user.get(CONF_BIRTHDATE)

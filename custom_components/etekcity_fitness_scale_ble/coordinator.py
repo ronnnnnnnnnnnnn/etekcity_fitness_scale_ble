@@ -2004,8 +2004,12 @@ class ScaleDataUpdateCoordinator:
                             else:
                                 birthdate = birthdate_str
 
-                            sex_str = user_profile.get("sex", "Male")
-                            sex = Sex.Male if sex_str == "Male" else Sex.Female
+                            sex_str = user_profile.get("sex", "male")
+                            sex = (
+                                Sex.Female
+                                if (sex_str or "").lower() == "female"
+                                else Sex.Male
+                            )
                             age = _calc_age(birthdate)
                             body_metrics = BodyMetrics(
                                 weight_kg, height_m, age, sex, impedance
@@ -2534,8 +2538,12 @@ class ScaleDataUpdateCoordinator:
                             else:
                                 birthdate = birthdate_str
 
-                            sex_str = user_profile.get("sex", "Male")
-                            sex = Sex.Male if sex_str == "Male" else Sex.Female
+                            sex_str = user_profile.get("sex", "male")
+                            sex = (
+                                Sex.Female
+                                if (sex_str or "").lower() == "female"
+                                else Sex.Male
+                            )
                             age = _calc_age(birthdate)
                             body_metrics = BodyMetrics(
                                 weight_kg, height_m, age, sex, impedance

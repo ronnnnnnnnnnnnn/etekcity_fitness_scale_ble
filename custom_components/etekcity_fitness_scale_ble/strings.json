@@ -1,4 +1,12 @@
 {
+  "selector": {
+    "sex": {
+      "options": {
+        "male": "Male",
+        "female": "Female"
+      }
+    }
+  },
   "config": {
     "flow_title": "{name}",
     "step": {
