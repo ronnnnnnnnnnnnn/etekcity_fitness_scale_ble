@@ -386,6 +386,13 @@ class ScaleSensor(RestoreSensor):
             self._attr_available = True
             self._attr_native_value = measurement
 
+            # Force a recorded state change even when the new value is identical
+            # to the previous one, so repeated readings still appear in the
+            # History UI and trigger state-change automations. Restoration writes
+            # (which happen before the first real measurement) are unaffected and
+            # remain subject to normal deduplication.
+            self._attr_force_update = True
+
             self.async_write_ha_state()
             _LOGGER.debug("Sensor %s updated successfully", self.entity_id)
         else:
