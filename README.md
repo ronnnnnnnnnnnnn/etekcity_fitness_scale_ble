@@ -55,7 +55,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ### Initial Setup
 
-1. In Home Assistant, go to "Configuration" > "Integrations".
+1. In Home Assistant, go to "Configuration" → "Integrations".
 2. Click the "+" button to add a new integration.
 3. Search for "Etekcity Fitness Scale BLE" and select it.
 4. Follow the configuration steps:
@@ -68,7 +68,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ### User Profile Configuration Options
 
-When adding or editing user profiles (**Settings > Devices & Services > Etekcity Fitness Scale BLE > Configure**), you can configure the following options:
+When adding or editing user profiles (**Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure**), you can configure the following options:
 
 - **User Name:** Display name for the user profile.
 
@@ -107,7 +107,7 @@ If the measurement is ambiguous (e.g., two users have similar weights, or a new 
 
 ### Managing Users
 
-You can manage user profiles by navigating to your device in **Settings > Devices & Services > Etekcity Fitness Scale BLE**. Click **CONFIGURE** to:
+You can manage user profiles by navigating to your device in **Settings → Devices & Services → Etekcity Fitness Scale BLE**. Click **CONFIGURE** to:
 - **Add a new user:** Create a new profile with optional person entity link and mobile notification settings.
 - **Edit a user:** Update a user's name, linked person entity, mobile devices, or body metric settings.
 - **Remove a user:** Delete a user's profile and all associated sensor entities.
@@ -120,7 +120,7 @@ If you used the original single-user version of the integration, migrating to th
 
 ## Services
 
-The integration provides services to manage measurements, especially for handling ambiguous weigh-ins. You can use these in scripts or automations, or call them directly from **Developer Tools > Actions**.
+The integration provides services to manage measurements, especially for handling ambiguous weigh-ins. You can use these in scripts or automations, or call them directly from **Developer Tools → Actions**.
 
 ### `etekcity_fitness_scale_ble.assign_measurement`
 Assign a pending (ambiguous) measurement to a specific user. The `timestamp` and candidate `user_id`s are provided in the persistent notification.
@@ -205,7 +205,7 @@ Before opening a GitHub issue:
 3. **Include version info:**
    - Home Assistant version (Settings → About)
    - Integration version (visible on the scale's device card under **Configuration**)
-   - Scale model (ESF551 or ESF24)
+   - Scale model (ESF-551 or ESF-24)
 4. **If it's a BLE / connection issue,** also enable library logging in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
 
 Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues).
