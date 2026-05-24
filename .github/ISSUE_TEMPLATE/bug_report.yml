@@ -1,0 +1,107 @@
+name: Bug report
+description: Report a bug with the Etekcity Fitness Scale BLE integration.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report.
+
+        Before submitting, please:
+
+        - Skim the [Troubleshooting section of the README](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble#troubleshooting).
+        - If the scale doesn't connect, returns no data, or the values are clearly wrong, this might be a protocol-level compatibility issue — see [Diagnosing Protocol Compatibility](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble#diagnosing-protocol-compatibility) first.
+        - Download diagnostics from your scale's device card (**Settings → Devices & Services → Etekcity Fitness Scale BLE → your scale → Download Diagnostics**) and attach the JSON file at the bottom of this form.
+
+  - type: input
+    id: marketed_model
+    attributes:
+      label: Scale model
+      description: As shown on the box or product listing (e.g. ESF-551, ESF-24). See the [Supported Devices](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble#supported-devices) section.
+      placeholder: ESF-551
+    validations:
+      required: true
+
+  - type: input
+    id: ble_name
+    attributes:
+      label: BLE advertised name
+      description: |
+        How the scale appears in **Settings → Devices & Services** or in HA's bluetooth logs — typically starts with `Etekcity`, `QN-Scale1`, or a MAC address. Helps verify the integration's discovery filter actually picked up your model.
+      placeholder: Etekcity Smart Fitness Scale
+    validations:
+      required: false
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: "2026.4.1"
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      description: Visible on the scale's device card under **Configuration**.
+      placeholder: "0.4.2"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Scale firmware revision
+      description: Shown on the device card under `sw_version`.
+      placeholder: "1.0.5"
+    validations:
+      required: false
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Scale hardware revision
+      description: Shown on the device card under `hw_version`.
+      placeholder: "1.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happens
+      description: Describe the bug and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Step on the scale
+        2. ...
+        3. ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        For BLE / connection issues, enable **Library Logging** under the integration's Advanced Settings, reproduce the problem, and paste the relevant log lines here.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics dump
+      description: Drag the downloaded `.json` file into this field to attach it.
+    validations:
+      required: false

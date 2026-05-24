@@ -1,0 +1,4 @@
+contact_links:
+  - name: Scale not supported, not connecting, or returning no data?
+    url: https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble#diagnosing-protocol-compatibility
+    about: If your scale isn't on the supported list, the scale connects but no readings appear, or the values look clearly wrong, this might be a protocol-level compatibility issue — please follow the protocol-diagnosis workflow first.

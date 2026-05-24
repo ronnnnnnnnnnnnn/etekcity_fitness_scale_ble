@@ -177,7 +177,7 @@ This integration supports the following Etekcity scale models:
 **Where to buy ESF-551:** [🇺🇸 US](https://www.amazon.com/dp/B095YJW56C?tag=ronnnnnnn-20) · [🇬🇧 UK](https://www.amazon.co.uk/dp/B095YJW56C?tag=ronnnnnnn02-21) · [🇪🇸 ES](https://www.amazon.es/dp/B095YJW56C?tag=ronnnnnnn-21) · [🇫🇷 FR](https://www.amazon.fr/dp/B095YJW56C?tag=ronnnnnnn0b-21)  
 **Where to buy ESF-24:** [🇺🇸 US](https://www.amazon.com/dp/B07D7R25JV?tag=ronnnnnnn-20) · [🇮🇹 IT](https://www.amazon.it/dp/B07D7R25JV?tag=ronnnnnnn0a-21) · [🇫🇷 FR](https://www.amazon.fr/dp/B07D7R25JV?tag=ronnnnnnn0b-21)
 
-Other Etekcity BLE fitness scale models may work but have not been tested. If you try it with a different model, please let me know whether it works or not.
+Other Etekcity BLE fitness scale models may work but have not been tested. If you'd like to help diagnose protocol compatibility for an unsupported model, see [Diagnosing Protocol Compatibility](#diagnosing-protocol-compatibility).
 
 ## Troubleshooting
 
@@ -206,9 +206,40 @@ Before opening a GitHub issue:
    - Home Assistant version (Settings → About)
    - Integration version (visible on the scale's device card under **Configuration**)
    - Scale model (ESF551 or ESF24)
-4. **If it's a BLE / connection issue,** also enable **Enable Library Logging** in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
+4. **If it's a BLE / connection issue,** also enable library logging in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
 
 Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues).
+
+## Diagnosing Protocol Compatibility
+
+If you have an Etekcity BLE scale that isn't in the [Supported Devices](#supported-devices) list — or that's listed but isn't behaving the way the integration expects — you can help me diagnose the protocol-level compatibility by capturing a Bluetooth log of the official VeSync app talking to the scale. From that I can usually tell whether the scale speaks a protocol close to what this integration already understands, something different but parseable, or something out of reach — and we can figure out next steps from there.
+
+### Capturing the log on Android
+
+1. Delete any old `btsnoop_hci*` files on your phone first.
+2. In Developer Options, enable **Bluetooth HCI Snoop Log**.
+3. Toggle Bluetooth off and on. This starts a fresh log file.
+4. With the VeSync app, weigh yourself and **note down the exact date/time of the measurement** along with every value the app reports (weight, body fat, water %, bone mass, etc.). Also note your user profile info — sex, body height, activity level, age. All of this is the ground truth needed to verify the byte decoding against the capture.
+5. Repeat step 4 at least 3 more times at noticeably different weights (e.g. yourself holding something heavy, like a crate of beer).
+6. Disable **Bluetooth HCI Snoop Log**.
+
+Then trigger a bug report from Developer Options (interactive is enough, no need for a full one). Inside the resulting zip, look under `FS\data\misc\bluetooth\logs\` for one or more files whose names begin with `btsnoop_hci` — the exact suffix varies by Android version and manufacturer (`.log`, `.log.last`, `-1.log`, `-2.log`, etc.). If you see several, send all of them.
+
+> **Before sending: confirm the filenames start with `btsnoop_hci`, not `btsnooz_hci`.** (Note the 'z'.) The `btsnooz_hci*` variants are Android's truncated always-on diagnostic buffer — they exist even without HCI snoop logging enabled, and aren't usable for protocol analysis. If those are all you find, the snoop log wasn't actually capturing; double-check the developer option is on, toggle Bluetooth off and on, and redo from step 4. Catching this before sending saves an unnecessary round-trip.
+
+### Capturing the log on iOS
+
+Apple provides a signed Bluetooth-logging configuration profile that enables BLE packet capture on iOS without jailbreaking. The Twocanoes Software knowledge base has a well-illustrated walkthrough: [Capture Bluetooth Packet Trace on iOS](https://twocanoes.com/knowledge-base/capture-bluetooth-packet-trace-on-ios/). You'll need a Mac to extract the captures from the resulting sysdiagnose. Android is still the easier path if you have access to both.
+
+### What to include in the issue
+
+Open a [GitHub issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues) and include:
+
+- The marketed model name (from the box)
+- The model code from the regulatory sticker on the back of the scale
+- All `btsnoop_hci*` log files from the bug report, attached to the issue (or a WeTransfer / Drive link if too large for GitHub) — see filename note above before attaching
+- For every weigh-in in the capture: the exact timestamp, every value the VeSync app showed (weight, body fat, water %, bone mass, etc.), and the user profile data that was active (sex, height, activity level, age)
+- A note on what the scale's display shows during a measurement and after — only the weight, or also other metrics, and whether the display changes over the course of the measurement until it stabilizes
 
 ## Support the Project
 
