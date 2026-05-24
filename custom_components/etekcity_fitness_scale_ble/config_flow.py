@@ -1079,10 +1079,14 @@ class ScaleOptionsFlow(OptionsFlow):
             if errors:
                 # Re-show form with errors (ordered: name → person link → mobile devices → features)
                 current_person = current_user.get(CONF_PERSON_ENTITY)
-                current_mobile_services = current_user.get(
-                    CONF_MOBILE_NOTIFY_SERVICES, []
-                )
                 available_mobile_services = _get_mobile_notify_services(self.hass)
+                # Drop saved services that are no longer registered — otherwise
+                # voluptuous rejects the form on render.
+                current_mobile_services = [
+                    s
+                    for s in (current_user.get(CONF_MOBILE_NOTIFY_SERVICES) or [])
+                    if s in available_mobile_services
+                ]
 
                 schema = {
                     vol.Required(
@@ -1192,8 +1196,14 @@ class ScaleOptionsFlow(OptionsFlow):
 
         # Build schema (ordered: name → person link → mobile devices → features)
         current_person = current_user.get(CONF_PERSON_ENTITY)
-        current_mobile_services = current_user.get(CONF_MOBILE_NOTIFY_SERVICES, [])
         available_mobile_services = _get_mobile_notify_services(self.hass)
+        # Drop saved services that are no longer registered — otherwise
+        # voluptuous rejects the form on render.
+        current_mobile_services = [
+            s
+            for s in (current_user.get(CONF_MOBILE_NOTIFY_SERVICES) or [])
+            if s in available_mobile_services
+        ]
 
         schema = {
             vol.Required(CONF_USER_NAME, default=current_user[CONF_USER_NAME]): str,
