@@ -51,6 +51,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
+    CONF_DROP_UNASSIGNED_MEASUREMENTS,
     CONF_ENABLE_LIBRARY_LOGGING,
     CONF_HISTORY_RETENTION_DAYS,
     CONF_MAX_HISTORY_SIZE,
@@ -1095,6 +1096,21 @@ class ScaleDataUpdateCoordinator:
 
         return entry.data.get(CONF_ENABLE_LIBRARY_LOGGING, False)
 
+    def _is_drop_unassigned_enabled(self) -> bool:
+        """Check if dropping unassigned measurements is enabled in config entry.
+
+        Returns:
+            True if unassigned measurements should be dropped, False otherwise (default).
+        """
+        if not self._config_entry_id:
+            return False
+
+        entry = self._hass.config_entries.async_get_entry(self._config_entry_id)
+        if not entry:
+            return False
+
+        return entry.data.get(CONF_DROP_UNASSIGNED_MEASUREMENTS, False)
+
     def _configure_library_logger(self) -> logging.Logger | None:
         """Configure the etekcity_esf551_ble logger based on the advanced setting.
 
@@ -1828,9 +1844,20 @@ class ScaleDataUpdateCoordinator:
         # This ensures consistent timestamps across all code paths (auto-assign, detection, pending)
         measurement_timestamp = datetime.now().isoformat()
 
-        # Smart detection logic: Single user auto-assign (skip detection)
+        # Smart detection logic: Single user auto-assign skipping detection by
+        # default. Perform detection if 'drop assigned' is set to properly
+        # handle unassigned measurements
         if len(self._user_profiles) == 1:
             user_id = self._user_profiles[0].get(CONF_USER_ID)
+            if self._is_drop_unassigned_enabled():
+                candidates = self._person_detector.detect_person(weight_kg, self._user_profiles)
+                if not candidates:
+                    _LOGGER.info(
+                        "Dropping unassigned measurement (weight: %.2f kg) — outside range of sole user %s",
+                        weight_kg,
+                        user_id,
+                    )
+                    return
             _LOGGER.debug(
                 "Single user detected, auto-assigning measurement to user %s (weight: %.2f kg)",
                 user_id,
@@ -1848,7 +1875,14 @@ class ScaleDataUpdateCoordinator:
 
         # Fallback: If no candidates found, include all users
         # This prevents data loss when weight is out of tolerance for all users
+        # Skip if we're dropping all unassigned measurements
         if not candidates:
+            if self._is_drop_unassigned_enabled():
+                _LOGGER.info(
+                    "Dropping unassigned measurement (weight: %.2f kg) — outside range of all users",
+                    weight_kg,
+                )
+                return
             _LOGGER.debug(
                 "No candidates detected for weight %.2f kg, falling back to all users",
                 weight_kg,

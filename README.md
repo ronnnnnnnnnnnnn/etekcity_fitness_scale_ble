@@ -93,7 +93,7 @@ When a new measurement is received, the integration attempts to automatically as
 1. **Weight History:** The measurement is compared against each user's weight history.
 2. **Location:** If a user profile is linked to a Home Assistant `person` entity, the integration checks if that person is `home`. Users who are `not_home` are excluded from automatic assignment.
 
-If a single user is a clear match, the measurement is assigned automatically.
+If a single user is a clear match, the measurement is assigned automatically, by default.
 
 ### Ambiguous Measurements
 
@@ -104,6 +104,10 @@ If the measurement is ambiguous (e.g., two users have similar weights, or a new 
   - "Not me" - Dismisses your notification (measurement remains available for others)
 
 - **Persistent Notifications:** A notification appears in the Home Assistant notifications panel with instructions to manually assign the measurement using the `assign_measurement` service.
+
+### Dropping Guest/Pet/Unknown Measurements
+
+If the measurement is ambiguous and cannot be automatically assigned to a user and the "Drop Unassigned Measurements" advanced setting is enabled, then the measurement will be silently dropped. This is ideal for ad-hoc measurements made by any person or thing not already configured and won't be configured.
 
 ### Managing Users
 

@@ -29,6 +29,7 @@ from .const import (
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
     CONF_CREATED_AT,
+    CONF_DROP_UNASSIGNED_MEASUREMENTS,
     CONF_ENABLE_LIBRARY_LOGGING,
     CONF_FEET,
     CONF_HEIGHT,
@@ -1497,6 +1498,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_HISTORY_RETENTION_DAYS: user_input[CONF_HISTORY_RETENTION_DAYS],
                 CONF_MAX_HISTORY_SIZE: user_input[CONF_MAX_HISTORY_SIZE],
                 CONF_ENABLE_LIBRARY_LOGGING: user_input[CONF_ENABLE_LIBRARY_LOGGING],
+                CONF_DROP_UNASSIGNED_MEASUREMENTS: user_input[
+                    CONF_DROP_UNASSIGNED_MEASUREMENTS
+                ],
             }
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=new_data
@@ -1510,6 +1514,9 @@ class ScaleOptionsFlow(OptionsFlow):
         # Get current values
         current_library_logging = self.config_entry.data.get(
             CONF_ENABLE_LIBRARY_LOGGING, False
+        )
+        current_drop_unassigned = self.config_entry.data.get(
+            CONF_DROP_UNASSIGNED_MEASUREMENTS, False
         )
 
         return self.async_show_form(
@@ -1533,6 +1540,10 @@ class ScaleOptionsFlow(OptionsFlow):
                     vol.Required(
                         CONF_ENABLE_LIBRARY_LOGGING,
                         default=current_library_logging,
+                    ): bool,
+                    vol.Required(
+                        CONF_DROP_UNASSIGNED_MEASUREMENTS,
+                        default=current_drop_unassigned,
                     ): bool,
                 }
             ),

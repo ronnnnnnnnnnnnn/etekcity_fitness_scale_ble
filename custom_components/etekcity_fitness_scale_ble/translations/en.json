@@ -189,12 +189,14 @@
         "data": {
           "history_retention_days": "History Retention (days)",
           "max_history_size": "Max History Size (measurements)",
-          "enable_library_logging": "Enable Library Logging"
+          "enable_library_logging": "Enable Library Logging",
+          "drop_unassigned_measurements": "Drop Unassigned Measurements"
         },
         "data_description": {
           "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",
           "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements.",
-          "enable_library_logging": "When enabled, logs from the underlying etekcity_esf551_ble library will be included in the integration's logs. Useful for troubleshooting BLE communication issues."
+          "enable_library_logging": "When enabled, logs from the underlying etekcity_esf551_ble library will be included in the integration's logs. Useful for troubleshooting BLE communication issues.",
+          "drop_unassigned_measurements": "When enabled, any measurement whose weight falls outside the range of every configured user is discarded instead of being assigned. Useful for ignoring guests, pets, or stray readings. Disabled by default."
         }
       }
     },
