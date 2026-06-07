@@ -6,14 +6,14 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Features
 
-- **Supported models:** ESF-551 (full features: weight, impedance, body composition) and ESF-24 (weight and display unit; experimental)
+- **Supported models:** ESF-551 and FIT-8S (full features: weight, impedance, body composition) and ESF-24 (weight and display unit; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
     - Uses an adaptive tolerance system that adjusts to each user's weight fluctuations over time.
     - Supports linking users to Home Assistant Person entities to exclude users who are `not_home`.
 - Real-time weight and impedance measurements
-- Optional body composition metrics (ESF-551 only) including:
+- Optional body composition metrics (ESF-551 and FIT-8S) including:
     - Body Mass Index (BMI)
     - Body Fat Percentage
     - Fat Free Weight
@@ -33,7 +33,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 - This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
 - **ESF-24** scales receive weight sensors and display unit settings only; body composition is not currently supported for this model.
-- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (0.4.x) for communication with the scale.
+- This integration uses a fork of the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library ([Flautz/etekcity_esf551_ble](https://github.com/Flautz/etekcity_esf551_ble)) that adds FIT-8S support.
 
 ## Installation
 
@@ -60,8 +60,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 3. Search for "Etekcity Fitness Scale BLE" and select it.
 4. Follow the configuration steps:
     - Choose your preferred unit system (Metric or Imperial)
-    - For **ESF-551** only: optionally enable body composition metrics
-    - If body composition is enabled (ESF-551):
+    - For **ESF-551** and **FIT-8S**: optionally enable body composition metrics
+    - If body composition is enabled (ESF-551 / FIT-8S):
         - Select your sex
         - Enter your date of birth
         - Enter your height
@@ -80,7 +80,7 @@ When adding or editing user profiles (**Settings → Devices & Services → Etek
   - When enabled, you'll receive a mobile notification with tap-to-assign buttons directly on your phone
   - Each candidate user gets a personalized notification with "This is me" and "Not me" buttons
 
-- **Enable body composition metrics (ESF-551 only):** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth, and height. Not available for ESF-24.
+- **Enable body composition metrics (ESF-551 / FIT-8S only):** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth, and height. Not available for ESF-24.
 
 ## Multi-User Support
 
@@ -170,6 +170,7 @@ This integration supports the following Etekcity scale models:
 | Model | Status | Features |
 |-------|--------|----------|
 | [ESF-551 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
+| FIT-8S | Fully supported | Weight, impedance, body composition |
 | [ESF-24 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf24) | Experimental | Weight, display unit |
 
 *As an Amazon Associate I earn from qualifying purchases.*
@@ -205,7 +206,7 @@ Before opening a GitHub issue:
 3. **Include version info:**
    - Home Assistant version (Settings → About)
    - Integration version (visible on the scale's device card under **Configuration**)
-   - Scale model (ESF-551 or ESF-24)
+   - Scale model (ESF-551, FIT-8S, or ESF-24)
 4. **If it's a BLE / connection issue,** also enable library logging in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
 
 Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues).
