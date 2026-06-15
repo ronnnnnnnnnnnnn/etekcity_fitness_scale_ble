@@ -22,7 +22,15 @@
     },
     "person_entity_unknown": {
       "title": "{user_name}: linked person has no location",
-      "description": "User **{user_name}** is linked to person entity `{person_entity}`, but that person has no working device trackers, so its state is `unknown`. Auto-assignment continues using weight matching — the link doesn't actively cause a problem — but location-based filtering for this user is effectively disabled until a tracker is assigned.\n\nFix it by either:\n\n- Going to **Settings → People**, opening `{person_entity}`, and assigning a device tracker to it (typically the user's phone via the Home Assistant companion app), **or**\n- Going to **Settings → Devices & Services → Etekcity Fitness Scale BLE → Configure** and clearing the **Person Entity** field on this user's profile if you don't plan to set up a tracker."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Clear the person entity link?",
+            "description": "User **{user_name}** is linked to person entity `{person_entity}`, but that person has no working device trackers, so its state is `unknown`. Location-based matching only skips a user when their person is `not_home`, so with no tracker this link does nothing — auto-assignment is already using weight-only matching for this user.\n\nIf you don't use location-based matching (for example, everyone is usually home at weigh-in time), clearing this link is safe and removes this warning.\n\nPrefer to keep it? Assign a device tracker to `{person_entity}` in **Settings → People** instead (typically the user's phone via the Home Assistant companion app), and this warning will clear on its own.\n\nThis will clear the link from the profile.",
+            "submit": "Clear"
+          }
+        }
+      }
     },
     "mobile_service_missing": {
       "title": "{user_name}: mobile notify service `{service}` not found",
@@ -64,7 +72,7 @@
           "add_another_user": "Add another user after saving"
         },
         "data_description": {
-          "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+          "person_entity": "Only used when this scale has multiple users, to skip this user when their linked person is away from home at weigh-in time. Requires the person to have a working device tracker (e.g. their phone via the Home Assistant companion app). Leave blank to match by weight only.",
           "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
         }
       },
@@ -93,7 +101,8 @@
       "cannot_connect": "Failed to connect",
       "unknown": "Unexpected error",
       "empty_user_name": "User name cannot be empty. Please provide a valid name.",
-      "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
+      "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user.",
+      "person_entity_no_tracker": "This person has no device tracker, so location-based matching can't use it. Assign a device tracker in Settings → People first (typically their phone via the Home Assistant companion app), or leave this field blank."
     },
     "abort": {
       "no_devices_found": "No devices found on the network",
@@ -126,7 +135,7 @@
           "body_metrics_enabled": "Enable body composition metrics"
         },
         "data_description": {
-          "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+          "person_entity": "Only used when this scale has multiple users, to skip this user when their linked person is away from home at weigh-in time. Requires the person to have a working device tracker (e.g. their phone via the Home Assistant companion app). Leave blank to match by weight only.",
           "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
         }
       },
@@ -156,7 +165,7 @@
           "body_metrics_enabled": "Enable body composition metrics"
         },
         "data_description": {
-          "person_entity": "Link to a person entity to use their location for automatic assignment. Users marked as 'not_home' will be excluded from auto-assignment.",
+          "person_entity": "Only used when this scale has multiple users, to skip this user when their linked person is away from home at weigh-in time. Requires the person to have a working device tracker (e.g. their phone via the Home Assistant companion app). Leave blank to match by weight only.",
           "mobile_notify_services": "Select mobile devices to receive actionable notifications for ambiguous measurements. If not configured, you'll still receive the Home Assistant persistent notification."
         }
       },
@@ -200,7 +209,8 @@
     },
     "error": {
       "empty_user_name": "User name cannot be empty. Please provide a valid name.",
-      "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user."
+      "duplicate_person_entity": "This person entity is already linked to another user profile. Each person entity can only be associated with one scale user.",
+      "person_entity_no_tracker": "This person has no device tracker, so location-based matching can't use it. Assign a device tracker in Settings → People first (typically their phone via the Home Assistant companion app), or leave this field blank."
     },
     "abort": {
       "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function."

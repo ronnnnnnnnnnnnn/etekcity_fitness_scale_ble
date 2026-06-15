@@ -18,7 +18,13 @@ from homeassistant.components.bluetooth import (
     async_discovered_service_info,
 )
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
-from homeassistant.const import CONF_ADDRESS, CONF_UNIT_SYSTEM, UnitOfLength, UnitOfMass
+from homeassistant.const import (
+    CONF_ADDRESS,
+    CONF_UNIT_SYSTEM,
+    STATE_UNKNOWN,
+    UnitOfLength,
+    UnitOfMass,
+)
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers import entity_registry as er
@@ -223,6 +229,26 @@ def _validate_person_entity_unique(
             return False
 
     return True
+
+
+def _validate_person_entity_has_tracker(hass, person_entity: str | None) -> bool:
+    """A person entity is only useful here if it can report a location.
+
+    A ``person.X`` with no device trackers assigned sits in state
+    ``unknown``; linking it would do nothing (location-based matching only
+    skips a user when their person is ``not_home``). Reject that so users
+    don't configure an inert link. ``unavailable`` is treated as
+    acceptable — it's typically transient (HA restart, brief tracker
+    outage), and blocking on it would be a flaky validation. A missing
+    state is also accepted (the entity selector only offers existing
+    entities, so this is purely defensive).
+    """
+    if not person_entity:
+        return True
+    state = hass.states.get(person_entity)
+    if state is None:
+        return True
+    return state.state != STATE_UNKNOWN
 
 
 @dataclasses.dataclass(frozen=True)
@@ -430,6 +456,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             # Validate person entity is unique (no existing profiles yet, but keep logic consistent)
             if person_entity and not _validate_person_entity_unique(person_entity, []):
                 errors["person_entity"] = "duplicate_person_entity"
+            elif person_entity and not _validate_person_entity_has_tracker(
+                self.hass, person_entity
+            ):
+                errors["person_entity"] = "person_entity_no_tracker"
 
             if errors:
                 schema: dict[Any, Any] = {
@@ -790,6 +820,10 @@ class ScaleOptionsFlow(OptionsFlow):
                 person_entity, self.user_profiles
             ):
                 errors["person_entity"] = "duplicate_person_entity"
+            elif person_entity and not _validate_person_entity_has_tracker(
+                self.hass, person_entity
+            ):
+                errors["person_entity"] = "person_entity_no_tracker"
 
             if errors:
                 # Re-show form with errors (ordered: name → person link → mobile devices → features)
@@ -1075,6 +1109,10 @@ class ScaleOptionsFlow(OptionsFlow):
                 person_entity, self.user_profiles, exclude_user_id=selected_user_id
             ):
                 errors["person_entity"] = "duplicate_person_entity"
+            elif person_entity and not _validate_person_entity_has_tracker(
+                self.hass, person_entity
+            ):
+                errors["person_entity"] = "person_entity_no_tracker"
 
             if errors:
                 # Re-show form with errors (ordered: name → person link → mobile devices → features)

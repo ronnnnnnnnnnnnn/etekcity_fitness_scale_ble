@@ -12,12 +12,18 @@ the broken-link issues below don't actively drop measurements — they
 mean the location signal the user *configured* isn't doing anything,
 and the integration falls back to weight-only matching for that user.
 
-``mobile_service_missing`` and ``person_entity_missing`` are fixable
-in-place — the right one-click action is unambiguous (drop the stale
-entry / clear the broken link). ``person_entity_unknown`` is left
-non-fixable because the right remediation usually isn't clearing the
-link, it's assigning a tracker to the existing person; that's a
-decision the user has to make.
+``mobile_service_missing``, ``person_entity_missing``, and
+``person_entity_unknown`` are all fixable in-place with a one-click
+"clear the link / drop the stale entry" action. For the two person
+cases, clearing isn't the *only* remediation (relinking, or assigning a
+device tracker, also resolves them), but it's a safe unambiguous default
+we can offer directly — the fix-flow text points at the alternatives.
+
+The person-entity issues are only raised when the integration has 2+
+users configured. The location filter that consumes the link only runs
+in the multi-user path (single-user measurements auto-assign without
+it), so with a single user a linked person is inert and warning about it
+would be pure noise.
 
 Issue types:
 
@@ -30,16 +36,17 @@ Issue types:
     Configure remains available for users who want to point at a new
     entity instead.
 
-- ``person_entity_unknown_<entry_id>_<user_id>`` *(non-fixable)*
+- ``person_entity_unknown_<entry_id>_<user_id>`` *(fixable)*
     The linked ``person.X`` exists but its state is ``unknown`` — the
     person was created in HA but no device trackers have been assigned
     to it. Same runtime impact as the missing case (not excluded, just
     no useful location signal). Surfaced as a warning so the user knows
-    their configuration is degraded. Left non-fixable because the right
-    remediation is usually "assign a tracker", not "clear the link".
-    ``unavailable`` is deliberately *not* flagged because it's typically
-    transient (HA restart, brief tracker outage); raising a flapping
-    issue every reload would just be noise.
+    their configuration is degraded. The fix flow clears the link (the
+    right move for a household that doesn't use location-based matching);
+    the fix-flow text also points at the alternative of assigning a
+    device tracker instead. ``unavailable`` is deliberately *not* flagged
+    because it's typically transient (HA restart, brief tracker outage);
+    raising a flapping issue every reload would just be noise.
 
 - ``mobile_service_missing_<entry_id>_<user_id>_<service_slug>`` *(fixable)*
     A configured ``notify.mobile_app_*`` service no longer exists.
@@ -78,6 +85,7 @@ from .const import (
 
 _REPAIR_KIND_MOBILE_SERVICE_MISSING = "mobile_service_missing"
 _REPAIR_KIND_PERSON_ENTITY_MISSING = "person_entity_missing"
+_REPAIR_KIND_PERSON_ENTITY_UNKNOWN = "person_entity_unknown"
 
 
 def _person_entity_missing_issue_id(entry_id: str, user_id: str) -> str:
@@ -115,6 +123,12 @@ def async_scan_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     desired: dict[str, dict[str, Any]] = {}
 
+    # The location filter that consumes a linked person entity only runs in
+    # the multi-user path. With a single user the link is inert, so the
+    # person-entity issues below would be pure noise — only raise them when
+    # 2+ users are configured.
+    multi_user = sum(1 for p in profiles if p.get(CONF_USER_ID)) >= 2
+
     for profile in profiles:
         user_id = profile.get(CONF_USER_ID, "")
         user_name = profile.get(CONF_USER_NAME, user_id)
@@ -126,7 +140,7 @@ def async_scan_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
         # "not_home"), but the configured link isn't providing the location
         # signal the user expected.
         person_entity = profile.get(CONF_PERSON_ENTITY)
-        if person_entity:
+        if multi_user and person_entity:
             person_state = hass.states.get(person_entity)
             if person_state is None:
                 # Entity gone (deleted in Settings → People). Fixable:
@@ -148,6 +162,12 @@ def async_scan_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
                     },
                 }
             elif person_state.state == STATE_UNKNOWN:
+                # Entity exists but has no working tracker — almost always
+                # permanent. (We don't flag STATE_UNAVAILABLE because that's
+                # typically transient.) Fixable: clearing the inert link is
+                # the right move for a household that doesn't use location-
+                # based matching; the fix-flow text points at assigning a
+                # tracker as the alternative.
                 issue_id = _person_entity_unknown_issue_id(entry.entry_id, user_id)
                 desired[issue_id] = {
                     "translation_key": "person_entity_unknown",
@@ -156,6 +176,12 @@ def async_scan_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
                         "person_entity": person_entity,
                     },
                     "severity": ir.IssueSeverity.WARNING,
+                    "is_fixable": True,
+                    "data": {
+                        "kind": _REPAIR_KIND_PERSON_ENTITY_UNKNOWN,
+                        "entry_id": entry.entry_id,
+                        "user_id": user_id,
+                    },
                 }
 
         # Mobile notify services that no longer exist. Fixable in-place:
@@ -226,12 +252,15 @@ def async_clear_repair_issues_for_entry(
 
 
 class _ClearPersonEntityRepairFlow(RepairsFlow):
-    """Clear a broken person_entity link from a user profile.
+    """Clear a person_entity link from a user profile.
 
     Called from the Repairs UI when the user clicks **Submit** on a
-    ``person_entity_missing`` issue. Clearing is unambiguous; users who
-    want to point at a different person entity instead can do that via
-    Configure → Edit User.
+    ``person_entity_missing`` issue (entity deleted) or a
+    ``person_entity_unknown`` issue (entity exists but has no working
+    tracker). In both cases the link is inert, so clearing it is a safe
+    unambiguous action; users who want to point at a different person
+    entity, or to assign a tracker instead, can do that via
+    Configure → Edit User / Settings → People.
     """
 
     def __init__(self, entry_id: str, user_id: str) -> None:
@@ -361,7 +390,10 @@ async def async_create_fix_flow(
                 user_id=data["user_id"],
                 service=data["service"],
             )
-        if kind == _REPAIR_KIND_PERSON_ENTITY_MISSING:
+        if kind in (
+            _REPAIR_KIND_PERSON_ENTITY_MISSING,
+            _REPAIR_KIND_PERSON_ENTITY_UNKNOWN,
+        ):
             return _ClearPersonEntityRepairFlow(
                 entry_id=data["entry_id"],
                 user_id=data["user_id"],
