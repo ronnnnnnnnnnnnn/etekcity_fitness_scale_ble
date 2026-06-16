@@ -25,7 +25,7 @@
       "local_name": "04:AC:44:*"
     },
     {
-      "connectable": true,
+      "connectable": false,
       "manufacturer_id": 1744,
       "local_name": "A9:89:5D:*"
     }
