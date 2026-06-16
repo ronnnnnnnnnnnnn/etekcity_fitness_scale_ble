@@ -37,10 +37,11 @@ from etekcity_esf551_ble import (
 )
 
 try:
-    from etekcity_esf551_ble import ESF24Scale, ESF551Scale
+    from etekcity_esf551_ble import ESF24Scale, ESF551Scale, FIT8SScale
 except ImportError:
     ESF24Scale = None  # type: ignore[misc, assignment]
     ESF551Scale = None  # type: ignore[misc, assignment]
+    FIT8SScale = None  # type: ignore[misc, assignment]
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
@@ -1346,7 +1347,7 @@ class ScaleDataUpdateCoordinator:
                 )
                 raise  # Let caller handle retry logic
 
-            # Initialize client based on scale model (ESF24 vs ESF551)
+            # Initialize client based on scale model
             try:
                 library_logger = self._configure_library_logger()
                 if library_logger:
@@ -1365,6 +1366,16 @@ class ScaleDataUpdateCoordinator:
                 elif self._scale_model == ScaleModel.ESF551 and ESF551Scale is not None:
                     _LOGGER.debug("Initializing new ESF551Scale client")
                     self._client = ESF551Scale(
+                        self.address,
+                        self.update_listeners,
+                        self._display_unit,
+                        scanning_mode=BluetoothScanningMode.PASSIVE,
+                        bleak_scanner_backend=scanner,
+                        logger=library_logger,
+                    )
+                elif self._scale_model == ScaleModel.FIT8S and FIT8SScale is not None:
+                    _LOGGER.debug("Initializing new FIT8SScale client")
+                    self._client = FIT8SScale(
                         self.address,
                         self.update_listeners,
                         self._display_unit,

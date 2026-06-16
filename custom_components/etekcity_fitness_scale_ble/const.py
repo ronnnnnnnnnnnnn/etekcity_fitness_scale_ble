@@ -20,6 +20,7 @@ class ScaleModel(StrEnum):
 
     ESF551 = "ESF-551"
     ESF24 = "ESF-24"
+    FIT8S = "FIT-8S"
 
 
 # Bluetooth matchers: single source of truth aligned with manifest.json "bluetooth" entries.
@@ -30,6 +31,7 @@ BLUETOOTH_MATCHERS: list[tuple[ScaleModel, int | None, str]] = [
     (ScaleModel.ESF24, None, "04:AC:44:*"),
     (ScaleModel.ESF551, 1744, "Etekcity *Fitness *Scale*"),
     (ScaleModel.ESF551, 1744, "D0:4D:00:*"),
+    (ScaleModel.FIT8S, 1744, "A9:89:5D:*"),
 ]
 
 # Multi-user constants (v2+)

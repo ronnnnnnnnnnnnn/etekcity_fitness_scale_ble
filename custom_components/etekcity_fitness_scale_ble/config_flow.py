@@ -381,6 +381,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders["esf24_note"] = (
                 " (ESF-24 detected - experimental support, weight only)"
             )
+        elif scale_model == ScaleModel.FIT8S:
+            description_placeholders["esf24_note"] = " (FIT-8S detected)"
         else:
             description_placeholders["esf24_note"] = ""
 
@@ -475,7 +477,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                         available_mobile_services
                     )
 
-                if scale_model == ScaleModel.ESF551:
+                if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
                     schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
                         cv.boolean
                     )
@@ -489,7 +491,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             # Check if body metrics is enabled (ESF24 does not support body metrics)
             body_metrics_enabled = (
                 user_input.get(CONF_BODY_METRICS_ENABLED, False)
-                if scale_model == ScaleModel.ESF551
+                if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S)
                 else False
             )
             if body_metrics_enabled:
@@ -543,7 +545,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 available_mobile_services
             )
 
-        if scale_model == ScaleModel.ESF551:
+        if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
             schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
@@ -842,7 +844,7 @@ class ScaleOptionsFlow(OptionsFlow):
                         available_mobile_services
                     )
 
-                if self.scale_model == ScaleModel.ESF551:
+                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
                     schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
                         cv.boolean
                     )
@@ -856,7 +858,7 @@ class ScaleOptionsFlow(OptionsFlow):
             # Check if body metrics is enabled (ESF24 does not support body metrics)
             body_metrics_enabled = (
                 user_input.get(CONF_BODY_METRICS_ENABLED, False)
-                if self.scale_model == ScaleModel.ESF551
+                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S)
                 else False
             )
             if body_metrics_enabled:
@@ -920,7 +922,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 available_mobile_services
             )
 
-        if self.scale_model == ScaleModel.ESF551:
+        if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
             schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
@@ -1153,7 +1155,7 @@ class ScaleOptionsFlow(OptionsFlow):
                     ] = cv.multi_select(available_mobile_services)
 
                 # Add body metrics toggle last (ESF24 does not support body metrics)
-                if self.scale_model == ScaleModel.ESF551:
+                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
                     schema[
                         vol.Required(
                             CONF_BODY_METRICS_ENABLED,
@@ -1170,7 +1172,7 @@ class ScaleOptionsFlow(OptionsFlow):
             # Check if body metrics is being enabled/disabled (ESF24: always False)
             body_metrics_enabled = (
                 user_input.get(CONF_BODY_METRICS_ENABLED, False)
-                if self.scale_model == ScaleModel.ESF551
+                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S)
                 else False
             )
             currently_enabled = current_user.get(CONF_BODY_METRICS_ENABLED, False)
@@ -1266,7 +1268,7 @@ class ScaleOptionsFlow(OptionsFlow):
             ] = cv.multi_select(available_mobile_services)
 
         # Add body metrics toggle last (ESF24 does not support body metrics)
-        if self.scale_model == ScaleModel.ESF551:
+        if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
             schema[
                 vol.Required(
                     CONF_BODY_METRICS_ENABLED,
@@ -1506,6 +1508,8 @@ class ScaleOptionsFlow(OptionsFlow):
             description_placeholders = {
                 "esf24_note": " (ESF-24 - experimental support, weight only)"
             }
+        elif scale_model == ScaleModel.FIT8S:
+            description_placeholders = {"esf24_note": " (FIT-8S)"}
         else:
             description_placeholders = {"esf24_note": ""}
 

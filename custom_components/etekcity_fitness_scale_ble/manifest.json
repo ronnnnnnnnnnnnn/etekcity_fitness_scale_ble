@@ -23,6 +23,11 @@
     {
       "connectable": true,
       "local_name": "04:AC:44:*"
+    },
+    {
+      "connectable": false,
+      "manufacturer_id": 1744,
+      "local_name": "A9:89:5D:*"
     }
   ],
   "codeowners": [
@@ -37,7 +42,7 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues",
   "requirements": [
-    "etekcity_esf551_ble==0.4.2"
+    "etekcity_esf551_ble==0.5.0"
   ],
   "version": "0.4.6"
 }
