@@ -6,7 +6,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Features
 
-- **Supported models:** ESF-551 and FIT-8S (full features: weight, impedance, body composition) and ESF-24 (weight and display unit; experimental)
+- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), and ESF-24 (weight and display unit; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
@@ -33,7 +33,8 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 - This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
 - **ESF-24** scales receive weight sensors and display unit settings only; body composition is not currently supported for this model.
-- This integration uses a fork of the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library ([Flautz/etekcity_esf551_ble](https://github.com/Flautz/etekcity_esf551_ble)) that adds FIT-8S support.
+- **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551 and ESF-24 the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
+- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.5.0+) for scale communication.
 
 ## Installation
 
@@ -170,7 +171,7 @@ This integration supports the following Etekcity scale models:
 | Model | Status | Features |
 |-------|--------|----------|
 | [ESF-551 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
-| FIT-8S | Fully supported | Weight, impedance, body composition |
+| [FIT-8S Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-fit-8s) | Experimental | Weight, impedance, body composition |
 | [ESF-24 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf24) | Experimental | Weight, display unit |
 
 *As an Amazon Associate I earn from qualifying purchases.*
@@ -241,6 +242,11 @@ Open a [GitHub issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_
 - All `btsnoop_hci*` log files from the bug report, attached to the issue (or a WeTransfer / Drive link if too large for GitHub) — see filename note above before attaching
 - For every weigh-in in the capture: the exact timestamp, every value the VeSync app showed (weight, body fat, water %, bone mass, etc.), and the user profile data that was active (sex, height, activity level, age)
 - A note on what the scale's display shows during a measurement and after — only the weight, or also other metrics, and whether the display changes over the course of the measurement until it stabilizes
+
+## Acknowledgments
+
+- FIT-8S support contributed by [@Flautz](https://github.com/Flautz) — thank you!
+
 
 ## Support the Project
 

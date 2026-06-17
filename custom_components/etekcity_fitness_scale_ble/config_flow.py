@@ -382,7 +382,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 " (ESF-24 detected - experimental support, weight only)"
             )
         elif scale_model == ScaleModel.FIT8S:
-            description_placeholders["esf24_note"] = " (FIT-8S detected)"
+            description_placeholders["esf24_note"] = (
+                " (FIT-8S detected)\n\nNote: for FIT-8S the selected display unit"
+                " affects the Home Assistant display only, it is not sent to the scale."
+            )
         else:
             description_placeholders["esf24_note"] = ""
 
@@ -1509,7 +1512,12 @@ class ScaleOptionsFlow(OptionsFlow):
                 "esf24_note": " (ESF-24 - experimental support, weight only)"
             }
         elif scale_model == ScaleModel.FIT8S:
-            description_placeholders = {"esf24_note": " (FIT-8S)"}
+            description_placeholders = {
+                "esf24_note": (
+                    " (FIT-8S)\n\nNote: for FIT-8S the selected display unit"
+                    " affects the Home Assistant display only, it is not sent to the scale."
+                )
+            }
         else:
             description_placeholders = {"esf24_note": ""}
 
