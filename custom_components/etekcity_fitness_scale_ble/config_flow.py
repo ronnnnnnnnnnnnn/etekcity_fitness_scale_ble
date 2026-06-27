@@ -1602,14 +1602,16 @@ class ScaleOptionsFlow(OptionsFlow):
                         default=self.history_retention_days,
                     ): vol.All(
                         vol.Coerce(int),
-                        vol.Range(min=1, max=365),
+                        # 0 = never delete by age (keep history indefinitely)
+                        vol.Range(min=0, max=365),
                     ),
                     vol.Required(
                         CONF_MAX_HISTORY_SIZE,
                         default=self.max_history_size,
                     ): vol.All(
                         vol.Coerce(int),
-                        vol.Range(min=10, max=1000),
+                        # 0 = unlimited (no cap on number of measurements)
+                        vol.Range(min=0, max=1000),
                     ),
                     vol.Required(
                         CONF_ENABLE_LIBRARY_LOGGING,
