@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Self
 
-from etekcity_esf551_ble import IMPEDANCE_KEY, WEIGHT_KEY, WeightUnit
+from etekcity_esf551_ble import HEART_RATE_KEY, IMPEDANCE_KEY, WEIGHT_KEY, WeightUnit
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import (
@@ -28,6 +28,7 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    BODY_METRICS_MODELS,
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
     CONF_SCALE_DISPLAY_UNIT,
@@ -36,6 +37,7 @@ from .const import (
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     DOMAIN,
+    HEART_RATE_MODELS,
     ScaleModel,
     get_sensor_unique_id,
 )
@@ -220,7 +222,27 @@ async def async_setup_entry(
                 ),
             ]
 
-            if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+            # Heart rate is a direct measurement (not a computed body metric), so
+            # it is added independently of body_metrics_enabled - only the
+            # EFS-A591S reports it.
+            if scale_model in HEART_RATE_MODELS:
+                user_entities.append(
+                    ScaleUserSensor(
+                        entry.title,
+                        address,
+                        coordinator,
+                        SensorEntityDescription(
+                            key=HEART_RATE_KEY,
+                            icon="mdi:heart-pulse",
+                            native_unit_of_measurement="bpm",
+                            state_class=SensorStateClass.MEASUREMENT,
+                        ),
+                        user_id=user_id,
+                        user_name=user_name,
+                    ),
+                )
+
+            if scale_model in BODY_METRICS_MODELS:
                 user_entities.append(
                     ScaleUserSensor(
                         entry.title,
