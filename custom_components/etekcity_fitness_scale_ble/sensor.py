@@ -14,7 +14,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorExtraStoredData,
     SensorStateClass,
-    async_update_suggested_units,
 )
 from homeassistant.const import (
     CONF_UNIT_SYSTEM,
@@ -285,20 +284,20 @@ async def async_setup_entry(
             ]
         )
 
-    # Update suggested units for weight sensors
-    def _update_unit(sensor: ScaleSensor, unit: str) -> ScaleSensor:
-        if getattr(sensor, "_attr_device_class", None) == SensorDeviceClass.WEIGHT:
-            sensor._attr_suggested_unit_of_measurement = unit
-        return sensor
-
-    # Set display unit on coordinator
+    # Tell the coordinator the configured display unit. This drives the unit the
+    # scale itself shows (pushed to the scale) and the unit used in notifications.
+    # It deliberately does NOT set the Home Assistant sensor unit: the weight
+    # sensors report native kilograms with device_class=WEIGHT, so HA converts them
+    # to the user's preferred unit for display (unit system or per-entity override).
+    # Flipping the sensor unit here (via suggested_unit_of_measurement /
+    # async_update_suggested_units) rewrote the stored native value into the display
+    # unit and corrupted history on every switch; keeping native as kg lets HA
+    # convert cleanly across the whole history.
     coordinator.set_display_unit(
         WeightUnit.KG if display_unit == UnitOfMass.KILOGRAMS else WeightUnit.LB
     )
 
-    entities = [_update_unit(sensor, display_unit) for sensor in entities]
     async_add_entities(entities)
-    async_update_suggested_units(hass)
 
     # Start the coordinator AFTER entities are added
     # This ensures listeners are registered before BLE scanning begins
@@ -486,9 +485,11 @@ class ScaleWeightSensor(ScaleSensor):
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
             self._attr_native_value = last_state.native_value
-            self._attr_native_unit_of_measurement = (
-                last_state.native_unit_of_measurement
-            )
+            # Do not restore native_unit_of_measurement: it must stay kg (the
+            # entity description). Restoring it let the native unit drift to the
+            # display unit, after which HA stopped converting and showed the kg
+            # value under the lb label. With native pinned to kg, HA converts the
+            # value to whatever display unit is selected.
 
             address = self._id
             device_registry = dr.async_get(self.hass)
@@ -668,9 +669,11 @@ class ScaleUserWeightSensor(ScaleUserSensor):
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
             self._attr_native_value = last_state.native_value
-            self._attr_native_unit_of_measurement = (
-                last_state.native_unit_of_measurement
-            )
+            # Do not restore native_unit_of_measurement: it must stay kg (the
+            # entity description). Restoring it let the native unit drift to the
+            # display unit, after which HA stopped converting and showed the kg
+            # value under the lb label. With native pinned to kg, HA converts the
+            # value to whatever display unit is selected.
 
             address = self._id
             device_registry = dr.async_get(self.hass)
