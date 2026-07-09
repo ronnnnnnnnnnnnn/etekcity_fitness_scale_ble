@@ -52,7 +52,11 @@ from .const import (
     CONF_USER_PROFILES,
     CONF_WEIGHT_HISTORY,
     BLUETOOTH_MATCHERS,
+    BODY_METRICS_MODELS,
     DOMAIN,
+    EFSA591S_MODEL_CODES,
+    EFSA591S_MODEL_OFFSET,
+    ETEKCITY_MANUFACTURER_ID,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
     ScaleModel,
@@ -82,8 +86,23 @@ def _device_matches_matcher(
     return fnmatch.fnmatch(name.lower(), local_name_pattern.lower())
 
 
+def _is_efsa591s(discovery_info: BluetoothServiceInfo) -> bool:
+    """Return True if the manufacturer data carries an EFS-A591S model code."""
+    mfr = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
+    return (
+        mfr is not None
+        and len(mfr) > EFSA591S_MODEL_OFFSET
+        and mfr[EFSA591S_MODEL_OFFSET] in EFSA591S_MODEL_CODES
+    )
+
+
 def _device_matches_any_matcher(discovery_info: BluetoothServiceInfo) -> bool:
     """Return True if discovery_info matches any of our Bluetooth matchers (manifest)."""
+    # The EFS-A591S can't be matched by name (absent in passive scans, the
+    # ESF-551's name in active scans), so identify it by the manufacturer-data
+    # model byte before falling through to the name matchers.
+    if _is_efsa591s(discovery_info):
+        return True
     return any(
         _device_matches_matcher(discovery_info, mfr_id, name_pattern)
         for _, mfr_id, name_pattern in BLUETOOTH_MATCHERS
@@ -95,6 +114,16 @@ def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
 
     Uses BLUETOOTH_MATCHERS (aligned with manifest.json); first match wins.
     """
+    # The EFS-A591S check runs ABOVE the BLUETOOTH_MATCHERS loop on purpose: it
+    # shares the ESF-551's manufacturer ID, and its name is unreliable (absent in
+    # passive scans, the ESF-551's in active scans), so the matchers cannot
+    # distinguish the two and would misidentify or miss it. It is identifiable
+    # only by the model byte in the manufacturer data, which those matchers do
+    # not inspect.
+    if _is_efsa591s(discovery_info):
+        _LOGGER.debug("Detected EFS-A591S scale: %s", discovery_info.name)
+        return ScaleModel.EFSA591S
+
     for scale_model, manufacturer_id, local_name_pattern in BLUETOOTH_MATCHERS:
         if _device_matches_matcher(discovery_info, manufacturer_id, local_name_pattern):
             _LOGGER.debug(
@@ -480,7 +509,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                         available_mobile_services
                     )
 
-                if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+                if scale_model in BODY_METRICS_MODELS:
                     schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
                         cv.boolean
                     )
@@ -494,7 +523,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             # Check if body metrics is enabled (ESF24 does not support body metrics)
             body_metrics_enabled = (
                 user_input.get(CONF_BODY_METRICS_ENABLED, False)
-                if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S)
+                if scale_model in BODY_METRICS_MODELS
                 else False
             )
             if body_metrics_enabled:
@@ -548,7 +577,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 available_mobile_services
             )
 
-        if scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+        if scale_model in BODY_METRICS_MODELS:
             schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
@@ -849,7 +878,7 @@ class ScaleOptionsFlow(OptionsFlow):
                         available_mobile_services
                     )
 
-                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+                if self.scale_model in BODY_METRICS_MODELS:
                     schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = (
                         cv.boolean
                     )
@@ -863,7 +892,7 @@ class ScaleOptionsFlow(OptionsFlow):
             # Check if body metrics is enabled (ESF24 does not support body metrics)
             body_metrics_enabled = (
                 user_input.get(CONF_BODY_METRICS_ENABLED, False)
-                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S)
+                if self.scale_model in BODY_METRICS_MODELS
                 else False
             )
             if body_metrics_enabled:
@@ -927,7 +956,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 available_mobile_services
             )
 
-        if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+        if self.scale_model in BODY_METRICS_MODELS:
             schema[vol.Required(CONF_BODY_METRICS_ENABLED, default=False)] = cv.boolean
 
         return self.async_show_form(
@@ -1160,7 +1189,7 @@ class ScaleOptionsFlow(OptionsFlow):
                     ] = cv.multi_select(available_mobile_services)
 
                 # Add body metrics toggle last (ESF24 does not support body metrics)
-                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+                if self.scale_model in BODY_METRICS_MODELS:
                     schema[
                         vol.Required(
                             CONF_BODY_METRICS_ENABLED,
@@ -1177,7 +1206,7 @@ class ScaleOptionsFlow(OptionsFlow):
             # Check if body metrics is being enabled/disabled (ESF24: always False)
             body_metrics_enabled = (
                 user_input.get(CONF_BODY_METRICS_ENABLED, False)
-                if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S)
+                if self.scale_model in BODY_METRICS_MODELS
                 else False
             )
             currently_enabled = current_user.get(CONF_BODY_METRICS_ENABLED, False)
@@ -1273,7 +1302,7 @@ class ScaleOptionsFlow(OptionsFlow):
             ] = cv.multi_select(available_mobile_services)
 
         # Add body metrics toggle last (ESF24 does not support body metrics)
-        if self.scale_model in (ScaleModel.ESF551, ScaleModel.FIT8S):
+        if self.scale_model in BODY_METRICS_MODELS:
             schema[
                 vol.Required(
                     CONF_BODY_METRICS_ENABLED,

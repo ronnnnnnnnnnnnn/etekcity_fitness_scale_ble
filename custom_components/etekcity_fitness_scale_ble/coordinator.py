@@ -37,8 +37,9 @@ from etekcity_esf551_ble import (
 )
 
 try:
-    from etekcity_esf551_ble import ESF24Scale, ESF551Scale, FIT8SScale
+    from etekcity_esf551_ble import EFSA591SScale, ESF24Scale, ESF551Scale, FIT8SScale
 except ImportError:
+    EFSA591SScale = None  # type: ignore[misc, assignment]
     ESF24Scale = None  # type: ignore[misc, assignment]
     ESF551Scale = None  # type: ignore[misc, assignment]
     FIT8SScale = None  # type: ignore[misc, assignment]
@@ -1383,6 +1384,16 @@ class ScaleDataUpdateCoordinator:
                         bleak_scanner_backend=scanner,
                         logger=library_logger,
                     )
+                elif self._scale_model == ScaleModel.EFSA591S and EFSA591SScale is not None:
+                    _LOGGER.debug("Initializing new EFSA591SScale client")
+                    self._client = EFSA591SScale(
+                        self.address,
+                        self.update_listeners,
+                        self._display_unit,
+                        scanning_mode=BluetoothScanningMode.PASSIVE,
+                        bleak_scanner_backend=scanner,
+                        logger=library_logger,
+                    )
                 else:
                     # Fallback: use generic client (e.g. library < 0.4 or unknown model)
                     _LOGGER.debug(
@@ -1678,13 +1689,15 @@ class ScaleDataUpdateCoordinator:
             data: The scale data containing all measurements.
 
         Returns:
-            Dictionary with only raw measurements (weight, impedance).
+            Dictionary with only raw measurements (weight, impedance, heart_rate).
         """
         raw_measurements = {}
         if "weight" in data.measurements:
             raw_measurements["weight"] = data.measurements["weight"]
         if "impedance" in data.measurements:
             raw_measurements["impedance"] = data.measurements["impedance"]
+        if "heart_rate" in data.measurements:
+            raw_measurements["heart_rate"] = data.measurements["heart_rate"]
         return raw_measurements
 
     def _validate_measurement(
@@ -1979,7 +1992,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user (newest measurement scenario)
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble.esf551.body_metrics import (
+                from etekcity_esf551_ble.body_metrics import (
                     BodyMetrics,
                     Sex,
                     _as_dictionary,
@@ -2514,7 +2527,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble.esf551.body_metrics import (
+                from etekcity_esf551_ble.body_metrics import (
                     BodyMetrics,
                     Sex,
                     _as_dictionary,
