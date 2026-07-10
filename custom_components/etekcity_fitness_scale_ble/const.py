@@ -1,6 +1,6 @@
 """Constants for the etekcity_fitness_scale_ble integration."""
 
-from etekcity_esf551_ble import CAPABILITIES, ScaleModel
+from etekcity_esf551_ble import CAPABILITIES, ScaleModel as ScaleModel
 
 DOMAIN = "etekcity_fitness_scale_ble"
 
