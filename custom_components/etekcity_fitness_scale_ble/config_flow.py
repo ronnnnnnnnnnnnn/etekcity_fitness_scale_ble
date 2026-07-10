@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
-import fnmatch
 import logging
 import re
 import unicodedata
@@ -13,6 +12,11 @@ from typing import Any
 import voluptuous as vol
 from voluptuous.schema_builder import Marker
 
+from etekcity_esf551_ble import (
+    ETEKCITY_MANUFACTURER_ID,
+    detect_model,
+    is_etekcity_frame,
+)
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfo,
     async_discovered_service_info,
@@ -51,12 +55,8 @@ from .const import (
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     CONF_WEIGHT_HISTORY,
-    BLUETOOTH_MATCHERS,
     BODY_METRICS_MODELS,
     DOMAIN,
-    EFSA591S_MODEL_CODES,
-    EFSA591S_MODEL_OFFSET,
-    ETEKCITY_MANUFACTURER_ID,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
     ScaleModel,
@@ -69,69 +69,48 @@ _LOGGER = logging.getLogger(__name__)
 _SLUG_RE = re.compile(r"[^a-z0-9]")
 
 
-def _device_matches_matcher(
-    discovery_info: BluetoothServiceInfo,
-    manufacturer_id: int | None,
-    local_name_pattern: str,
-) -> bool:
-    """Return True if discovery_info matches the given Bluetooth matcher."""
-    if manufacturer_id is not None and (
-        not discovery_info.manufacturer_data
-        or manufacturer_id not in discovery_info.manufacturer_data
-    ):
-        return False
-    name = discovery_info.name
-    if not name:
-        return False
-    return fnmatch.fnmatch(name.lower(), local_name_pattern.lower())
-
-
-def _is_efsa591s(discovery_info: BluetoothServiceInfo) -> bool:
-    """Return True if the manufacturer data carries an EFS-A591S model code."""
-    mfr = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
-    return (
-        mfr is not None
-        and len(mfr) > EFSA591S_MODEL_OFFSET
-        and mfr[EFSA591S_MODEL_OFFSET] in EFSA591S_MODEL_CODES
-    )
-
-
 def _device_matches_any_matcher(discovery_info: BluetoothServiceInfo) -> bool:
-    """Return True if discovery_info matches any of our Bluetooth matchers (manifest)."""
-    # The EFS-A591S can't be matched by name (absent in passive scans, the
-    # ESF-551's name in active scans), so identify it by the manufacturer-data
-    # model byte before falling through to the name matchers.
-    if _is_efsa591s(discovery_info):
+    """Return True if this advertisement may belong to a supported scale.
+
+    Recognized models match via the library classifier. Etekcity-platform
+    frames with an unrecognized model identifier are ALSO accepted so that
+    unknown/new models are never filtered out of the manual picker — they
+    configure with the ESF-551 default (and the coordinator falls back to
+    the generic client for models the library has no class for). Other
+    VeSync products share the platform frame, so a purifier or plug may
+    appear in the manual list; that is the deliberate cost of not hiding
+    unknown scales.
+    """
+    if (
+        detect_model(
+            discovery_info.name,
+            discovery_info.manufacturer_data,
+            discovery_info.address,
+        )
+        is not None
+    ):
         return True
-    return any(
-        _device_matches_matcher(discovery_info, mfr_id, name_pattern)
-        for _, mfr_id, name_pattern in BLUETOOTH_MATCHERS
-    )
+    payload = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
+    return payload is not None and is_etekcity_frame(payload, discovery_info.address)
 
 
 def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
-    """Detect the scale model based on advertisement data.
-
-    Uses BLUETOOTH_MATCHERS (aligned with manifest.json); first match wins.
-    """
-    # The EFS-A591S check runs ABOVE the BLUETOOTH_MATCHERS loop on purpose: it
-    # shares the ESF-551's manufacturer ID, and its name is unreliable (absent in
-    # passive scans, the ESF-551's in active scans), so the matchers cannot
-    # distinguish the two and would misidentify or miss it. It is identifiable
-    # only by the model byte in the manufacturer data, which those matchers do
-    # not inspect.
-    if _is_efsa591s(discovery_info):
-        _LOGGER.debug("Detected EFS-A591S scale: %s", discovery_info.name)
-        return ScaleModel.EFSA591S
-
-    for scale_model, manufacturer_id, local_name_pattern in BLUETOOTH_MATCHERS:
-        if _device_matches_matcher(discovery_info, manufacturer_id, local_name_pattern):
-            _LOGGER.debug(
-                "Detected %s scale: %s", scale_model.value, discovery_info.name
-            )
-            return scale_model
-    _LOGGER.debug("No matcher matched, defaulting to ESF-551: %s", discovery_info.name)
-    return ScaleModel.ESF551
+    """Detect the scale model from advertisement data (library classifier)."""
+    model = detect_model(
+        discovery_info.name,
+        discovery_info.manufacturer_data,
+        discovery_info.address,
+    )
+    if model is None:
+        # Discovery was triggered by the (broad) manifest matchers but the
+        # library couldn't classify it; keep the historical ESF-551 default.
+        _LOGGER.debug(
+            "Library could not classify %s, defaulting to ESF-551",
+            discovery_info.name,
+        )
+        return ScaleModel.ESF551
+    _LOGGER.debug("Detected %s scale: %s", model.value, discovery_info.name)
+    return model
 
 
 def _get_mobile_notify_services(hass) -> dict[str, str]:
