@@ -1,6 +1,6 @@
 """Constants for the etekcity_fitness_scale_ble integration."""
 
-from enum import StrEnum
+from etekcity_esf551_ble import CAPABILITIES, ScaleModel
 
 DOMAIN = "etekcity_fitness_scale_ble"
 
@@ -15,48 +15,23 @@ CONF_INCHES = "inches"
 CONF_SCALE_MODEL = "scale_model"
 
 
-class ScaleModel(StrEnum):
-    """Scale model enumeration."""
+# Model detection lives in the etekcity_esf551_ble library (detect_model,
+# MODEL_CODES, FALLBACK_MATCHERS). manifest.json's "bluetooth" array is a
+# deliberately broad wake-up filter: its only job is to get discovery
+# callbacks fired; the library then confirms or rejects each device.
+# ScaleModel is re-exported here because its string values are persisted in
+# config entries; the library treats those values as a stable contract.
 
-    ESF551 = "ESF-551"
-    ESF24 = "ESF-24"
-    FIT8S = "FIT-8S"
-    EFSA591S = "EFS-A591S"
-
-
-# Bluetooth matchers: single source of truth aligned with manifest.json "bluetooth" entries.
-ETEKCITY_MANUFACTURER_ID = 1744
-
-# Order matters: first match wins for model detection. Each entry is (ScaleModel, manufacturer_id|None, local_name_pattern).
-# local_name_pattern uses fnmatch syntax (e.g. "*" for wildcard).
-BLUETOOTH_MATCHERS: list[tuple[ScaleModel, int | None, str]] = [
-    (ScaleModel.ESF24, None, "QN-Scale1"),
-    (ScaleModel.ESF24, None, "04:AC:44:*"),
-    (ScaleModel.ESF551, ETEKCITY_MANUFACTURER_ID, "Etekcity *Fitness *Scale*"),
-    (ScaleModel.ESF551, ETEKCITY_MANUFACTURER_ID, "D0:4D:00:*"),
-    (ScaleModel.FIT8S, ETEKCITY_MANUFACTURER_ID, "A9:89:5D:*"),
-]
-
-# The EFS-A591S can't be told apart from the ESF-551 by its advertisement: both
-# use ETEKCITY_MANUFACTURER_ID (1744), and the EFS-A591S sends its name
-# ("Etekcity Smart Fitness Scale") only in the scan response. Passive scans
-# therefore see no name, and active scans see a name that matches the ESF-551
-# matcher ("Etekcity *Fitness *Scale*"), so neither can tell the two apart. The
-# EFS-A591S is identified instead by a model-code byte in the primary
-# advertisement's manufacturer data at EFSA591S_MODEL_OFFSET.
-# Known EFS-A591S model codes: EFSA591SUs=3, KUSTUs=5, V5Us=127, V5KUSTUs=134.
-# (The ESF-551 is model 9729, so it never collides with this set.)
-EFSA591S_MODEL_OFFSET = 8
-EFSA591S_MODEL_CODES = frozenset({3, 5, 127, 134})
-
-# Models that measure impedance and therefore support body-metrics calculation
-# (weight + impedance + user profile). The ESF-24 is weight-only and excluded.
+# Models that measure impedance and therefore support body-metrics
+# calculation (weight + impedance + user profile).
 BODY_METRICS_MODELS = frozenset(
-    {ScaleModel.ESF551, ScaleModel.FIT8S, ScaleModel.EFSA591S}
+    model for model, caps in CAPABILITIES.items() if caps.has_impedance
 )
 
 # Models that also report heart rate (bpm) on the final measurement.
-HEART_RATE_MODELS = frozenset({ScaleModel.EFSA591S})
+HEART_RATE_MODELS = frozenset(
+    model for model, caps in CAPABILITIES.items() if caps.has_heart_rate
+)
 
 # Multi-user constants (v2+)
 CONF_SCALE_DISPLAY_UNIT = "scale_display_unit"
