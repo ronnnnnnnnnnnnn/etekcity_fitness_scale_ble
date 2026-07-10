@@ -51,7 +51,9 @@ EFSA591S_MODEL_CODES = frozenset({3, 5, 127, 134})
 
 # Models that measure impedance and therefore support body-metrics calculation
 # (weight + impedance + user profile). The ESF-24 is weight-only and excluded.
-BODY_METRICS_MODELS = frozenset({ScaleModel.ESF551, ScaleModel.FIT8S, ScaleModel.EFSA591S})
+BODY_METRICS_MODELS = frozenset(
+    {ScaleModel.ESF551, ScaleModel.FIT8S, ScaleModel.EFSA591S}
+)
 
 # Models that also report heart rate (bpm) on the final measurement.
 HEART_RATE_MODELS = frozenset({ScaleModel.EFSA591S})

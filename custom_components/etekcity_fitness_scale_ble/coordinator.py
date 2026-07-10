@@ -1384,7 +1384,10 @@ class ScaleDataUpdateCoordinator:
                         bleak_scanner_backend=scanner,
                         logger=library_logger,
                     )
-                elif self._scale_model == ScaleModel.EFSA591S and EFSA591SScale is not None:
+                elif (
+                    self._scale_model == ScaleModel.EFSA591S
+                    and EFSA591SScale is not None
+                ):
                     _LOGGER.debug("Initializing new EFSA591SScale client")
                     self._client = EFSA591SScale(
                         self.address,
