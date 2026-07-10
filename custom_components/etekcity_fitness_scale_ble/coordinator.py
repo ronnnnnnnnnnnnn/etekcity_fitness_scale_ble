@@ -37,12 +37,9 @@ from etekcity_esf551_ble import (
 )
 
 try:
-    from etekcity_esf551_ble import EFSA591SScale, ESF24Scale, ESF551Scale, FIT8SScale
-except ImportError:
-    EFSA591SScale = None  # type: ignore[misc, assignment]
-    ESF24Scale = None  # type: ignore[misc, assignment]
-    ESF551Scale = None  # type: ignore[misc, assignment]
-    FIT8SScale = None  # type: ignore[misc, assignment]
+    from etekcity_esf551_ble import SCALE_CLASSES
+except ImportError:  # library < 0.7
+    SCALE_CLASSES = None  # type: ignore[assignment]
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
@@ -1354,63 +1351,23 @@ class ScaleDataUpdateCoordinator:
                 if library_logger:
                     _LOGGER.debug("Library logging enabled, passing child logger")
 
-                if self._scale_model == ScaleModel.ESF24 and ESF24Scale is not None:
-                    _LOGGER.debug("Initializing new ESF24Scale client (experimental)")
-                    self._client = ESF24Scale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        scanning_mode=BluetoothScanningMode.PASSIVE,
-                        bleak_scanner_backend=scanner,
-                        logger=library_logger,
-                    )
-                elif self._scale_model == ScaleModel.ESF551 and ESF551Scale is not None:
-                    _LOGGER.debug("Initializing new ESF551Scale client")
-                    self._client = ESF551Scale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        scanning_mode=BluetoothScanningMode.PASSIVE,
-                        bleak_scanner_backend=scanner,
-                        logger=library_logger,
-                    )
-                elif self._scale_model == ScaleModel.FIT8S and FIT8SScale is not None:
-                    _LOGGER.debug("Initializing new FIT8SScale client")
-                    self._client = FIT8SScale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        scanning_mode=BluetoothScanningMode.PASSIVE,
-                        bleak_scanner_backend=scanner,
-                        logger=library_logger,
-                    )
-                elif (
-                    self._scale_model == ScaleModel.EFSA591S
-                    and EFSA591SScale is not None
-                ):
-                    _LOGGER.debug("Initializing new EFSA591SScale client")
-                    self._client = EFSA591SScale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        scanning_mode=BluetoothScanningMode.PASSIVE,
-                        bleak_scanner_backend=scanner,
-                        logger=library_logger,
-                    )
-                else:
-                    # Fallback: use generic client (e.g. library < 0.4 or unknown model)
-                    _LOGGER.debug(
-                        "Initializing new EtekcitySmartFitnessScale client (scale_model=%s)",
-                        self._scale_model,
-                    )
-                    self._client = EtekcitySmartFitnessScale(
-                        self.address,
-                        self.update_listeners,
-                        self._display_unit,
-                        scanning_mode=BluetoothScanningMode.PASSIVE,
-                        bleak_scanner_backend=scanner,
-                        logger=library_logger,
-                    )
+                client_cls = (SCALE_CLASSES or {}).get(self._scale_model)
+                if client_cls is None:
+                    # Fallback: generic client (library < 0.7 or unknown model)
+                    client_cls = EtekcitySmartFitnessScale
+                _LOGGER.debug(
+                    "Initializing new %s client (scale_model=%s)",
+                    client_cls.__name__,
+                    self._scale_model,
+                )
+                self._client = client_cls(
+                    self.address,
+                    self.update_listeners,
+                    self._display_unit,
+                    scanning_mode=BluetoothScanningMode.PASSIVE,
+                    bleak_scanner_backend=scanner,
+                    logger=library_logger,
+                )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")
