@@ -74,12 +74,10 @@ def _device_matches_any_matcher(discovery_info: BluetoothServiceInfo) -> bool:
 
     Recognized models match via the library classifier. Etekcity-platform
     frames with an unrecognized model identifier are ALSO accepted so that
-    unknown/new models are never filtered out of the manual picker — they
-    configure with the ESF-551 default (and the coordinator falls back to
-    the generic client for models the library has no class for). Other
-    VeSync products share the platform frame, so a purifier or plug may
-    appear in the manual list; that is the deliberate cost of not hiding
-    unknown scales.
+    unknown/new models are never filtered out of the manual picker. They
+    configure with the ESF-551 default. Other VeSync products share the
+    platform frame, so a purifier or plug may appear in the manual list;
+    that is the deliberate cost of not hiding unknown scales.
     """
     if (
         detect_model(
@@ -102,8 +100,9 @@ def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
         discovery_info.address,
     )
     if model is None:
-        # Discovery was triggered by the (broad) manifest matchers but the
-        # library couldn't classify it; keep the historical ESF-551 default.
+        # The library couldn't classify this device (discovery matched it,
+        # or the user picked it manually); keep the historical ESF-551
+        # default.
         _LOGGER.debug(
             "Library could not classify %s, defaulting to ESF-551",
             discovery_info.name,

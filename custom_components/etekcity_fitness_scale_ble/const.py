@@ -16,9 +16,9 @@ CONF_SCALE_MODEL = "scale_model"
 
 
 # Model detection lives in the etekcity_esf551_ble library (detect_model,
-# MODEL_CODES, FALLBACK_MATCHERS). manifest.json's "bluetooth" array is a
-# deliberately broad wake-up filter: its only job is to get discovery
-# callbacks fired; the library then confirms or rejects each device.
+# MODEL_CODES, FALLBACK_MATCHERS). manifest.json's "bluetooth" array only
+# decides which advertisements wake the discovery flow; classification is
+# done by the library, which confirms or rejects each device.
 # ScaleModel is re-exported here because its string values are persisted in
 # config entries; the library treats those values as a stable contract.
 
