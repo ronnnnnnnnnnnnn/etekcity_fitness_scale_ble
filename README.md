@@ -35,7 +35,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 - This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
 - **ESF-24** scales receive weight sensors and display unit settings only; body composition is not currently supported for this model.
 - **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24, and EFS-A591S the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
-- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.6.0+) for scale communication.
+- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.7.0+) for scale communication.
 
 ## Installation
 
