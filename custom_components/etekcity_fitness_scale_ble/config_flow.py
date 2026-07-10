@@ -729,7 +729,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             if address in current_addresses or address in self._discovered_devices:
                 continue
 
-            # Filter: include only devices matching our Bluetooth matchers (manifest)
+            # Filter: known scales plus unclassified Etekcity-platform frames
+            # (see _device_matches_any_matcher)
             if not _device_matches_any_matcher(discovery_info):
                 continue
 
