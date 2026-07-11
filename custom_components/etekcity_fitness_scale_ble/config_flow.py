@@ -74,10 +74,11 @@ def _device_matches_any_matcher(discovery_info: BluetoothServiceInfo) -> bool:
 
     Recognized models match via the library classifier. Etekcity-platform
     frames with an unrecognized model identifier are ALSO accepted so that
-    unknown/new models are never filtered out of the manual picker. They
-    configure with the ESF-551 default. Other VeSync products share the
-    platform frame, so a purifier or plug may appear in the manual list;
-    that is the deliberate cost of not hiding unknown scales.
+    unknown/new models on that platform are not filtered out of the manual
+    picker; they configure with the ESF-551 default. This openness does NOT
+    extend to the QN (0xFFFF) family — that company ID is a catch-all used
+    by many vendors, so unknown QN devices would flood the picker; QN-based
+    variants need a registry code or name/OUI matcher in the library.
     """
     if (
         detect_model(

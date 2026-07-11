@@ -30,16 +30,12 @@ from bluetooth_data_tools import (
     parse_advertisement_data_tuple,
 )
 from etekcity_esf551_ble import (
+    SCALE_CLASSES,
     BluetoothScanningMode,
     EtekcitySmartFitnessScale,
     ScaleData,
     WeightUnit,
 )
-
-try:
-    from etekcity_esf551_ble import SCALE_CLASSES
-except ImportError:  # library < 0.7
-    SCALE_CLASSES = None  # type: ignore[assignment]
 from habluetooth import HaScannerRegistration
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
@@ -1351,15 +1347,30 @@ class ScaleDataUpdateCoordinator:
                 if library_logger:
                     _LOGGER.debug("Library logging enabled, passing child logger")
 
-                client_cls = (SCALE_CLASSES or {}).get(self._scale_model)
+                client_cls = SCALE_CLASSES.get(self._scale_model)
                 if client_cls is None:
-                    # Fallback: generic client (library < 0.7 or unknown model)
-                    client_cls = EtekcitySmartFitnessScale
+                    # Unknown or legacy model value (e.g. an entry written by
+                    # a newer version of the integration): fall back to the
+                    # ESF-551 client. The EtekcitySmartFitnessScale base is
+                    # abstract and cannot be instantiated directly.
+                    _LOGGER.warning(
+                        "Unknown scale model %r; using the ESF-551 client",
+                        self._scale_model,
+                    )
+                    client_cls = SCALE_CLASSES[ScaleModel.ESF551]
                 _LOGGER.debug(
                     "Initializing new %s client (scale_model=%s)",
                     client_cls.__name__,
                     self._scale_model,
                 )
+                # NOTE: pass everything beyond (address, callback, display
+                # unit) by keyword — the concrete classes disagree on the
+                # positional order after those (FIT8SScale takes logger where
+                # the GATT models take cooldown_seconds). Do not pass
+                # cooldown_seconds at all: each class sets its own
+                # hardware-appropriate default (e.g. FIT-8S uses a 10s window
+                # to deduplicate its advertising bursts; overriding it with 0
+                # would deliver duplicate measurements per weigh-in).
                 self._client = client_cls(
                     self.address,
                     self.update_listeners,
