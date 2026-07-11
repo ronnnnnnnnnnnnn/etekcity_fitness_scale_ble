@@ -1349,10 +1349,7 @@ class ScaleDataUpdateCoordinator:
 
                 client_cls = SCALE_CLASSES.get(self._scale_model)
                 if client_cls is None:
-                    # Unknown or legacy model value (e.g. an entry written by
-                    # a newer version of the integration): fall back to the
-                    # ESF-551 client. The EtekcitySmartFitnessScale base is
-                    # abstract and cannot be instantiated directly.
+                    # Unknown or legacy model value: fall back to the ESF-551 client.
                     _LOGGER.warning(
                         "Unknown scale model %r; using the ESF-551 client",
                         self._scale_model,

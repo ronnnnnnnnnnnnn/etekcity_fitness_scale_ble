@@ -22,7 +22,7 @@ CONF_SCALE_MODEL = "scale_model"
 # ScaleModel is re-exported here because its string values are persisted in
 # config entries; the library treats those values as a stable contract.
 
-# Models that measure impedance and therefore support body-metrics
+# Models that send impedance measurements and therefore support body-metrics
 # calculation (weight + impedance + user profile).
 BODY_METRICS_MODELS = frozenset(
     model for model, caps in CAPABILITIES.items() if caps.has_impedance
