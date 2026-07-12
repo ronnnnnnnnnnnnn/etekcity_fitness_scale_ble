@@ -134,8 +134,8 @@ def _manual_picker_tier(discovery_info: BluetoothServiceInfo) -> int | None:
           non-connectable broadcast scales)
       3 — any other device that is not categorically a
           non-scale (denylist above), so users can try unknown scales
-    
-    Devices whose manufacturer ID or service UUIDs identify a non-scale 
+
+    Devices whose manufacturer ID or service UUIDs identify a non-scale
     product class are hidden from the manual picker.
     """
     if (
