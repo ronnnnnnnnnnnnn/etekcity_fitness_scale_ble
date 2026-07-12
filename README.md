@@ -6,14 +6,14 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Features
 
-- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight and display unit; experimental), and EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental)
+- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight and display unit; experimental) and EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
     - Uses an adaptive tolerance system that adjusts to each user's weight fluctuations over time.
     - Supports linking users to Home Assistant Person entities to exclude users who are `not_home`.
 - Real-time weight and impedance measurements
-- Optional body composition metrics (ESF-551, FIT-8S, and EFS-A591S) including:
+- Optional body composition metrics (ESF-551, FIT-8S and EFS-A591S) including:
     - Body Mass Index (BMI)
     - Body Fat Percentage
     - Fat Free Weight
@@ -34,7 +34,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 - This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
 - **ESF-24** scales receive weight sensors and display unit settings only; body composition is not currently supported for this model.
-- **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24, and EFS-A591S the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
+- **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24 and EFS-A591S, the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
 - This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.7.0+) for scale communication.
 
 ## Installation
@@ -62,11 +62,13 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 3. Search for "Etekcity Fitness Scale BLE" and select it.
 4. Follow the configuration steps:
     - Choose your preferred unit system (Metric or Imperial)
-    - For **ESF-551**, **FIT-8S**, and **EFS-A591S**: optionally enable body composition metrics
+    - For **ESF-551**, **FIT-8S** and **EFS-A591S**: optionally enable body composition metrics
     - If body composition is enabled (ESF-551 / FIT-8S / EFS-A591S):
         - Select your sex
         - Enter your date of birth
         - Enter your height
+
+When adding a device manually, scales that aren't recognized as a known model now also appear in the device picker, labeled "[unknown device]" or "[Etekcity device — unknown model]". You can still configure them by choosing which supported scale protocol to try — ESF-551 is the most common. If none of them work, please [open an issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues) with debug logs: they contain the device's model identifier when it broadcasts one, which is exactly what's needed to add support.
 
 ### User Profile Configuration Options
 
@@ -82,7 +84,7 @@ When adding or editing user profiles (**Settings → Devices & Services → Etek
   - When enabled, you'll receive a mobile notification with tap-to-assign buttons directly on your phone
   - Each candidate user gets a personalized notification with "This is me" and "Not me" buttons
 
-- **Enable body composition metrics (ESF-551 / FIT-8S / EFS-A591S only):** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth, and height. Not available for ESF-24.
+- **Enable body composition metrics (ESF-551 / FIT-8S / EFS-A591S only):** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth and height. Not available for ESF-24.
 
 ## Multi-User Support
 
@@ -111,7 +113,7 @@ If the measurement is ambiguous (e.g., two users have similar weights, or a new 
 
 You can manage user profiles by navigating to your device in **Settings → Devices & Services → Etekcity Fitness Scale BLE**. Click **CONFIGURE** to:
 - **Add a new user:** Create a new profile with optional person entity link and mobile notification settings.
-- **Edit a user:** Update a user's name, linked person entity, mobile devices, or body metric settings.
+- **Edit a user:** Update a user's name, linked person entity, mobile devices or body metric settings.
 - **Remove a user:** Delete a user's profile and all associated sensor entities.
 
 ## Legacy Default User (Old Version Migration)
@@ -198,25 +200,25 @@ power on
 scan on
 ```
 
-(See [this GitHub issue](https://github.com/home-assistant/core/issues/76186#issuecomment-1204954485) for more information)
+(See [this GitHub issue](https://github.com/home-assistant/core/issues/76186#issuecomment-1204954485) for more information.)
 
 ## Reporting Issues
 
 Before opening a GitHub issue:
 
 1. **Check Settings → Repairs.** If a repair card explains the problem, the description tells you how to fix it without filing anything.
-2. **Download diagnostics.** Open **Settings → Devices & Services → Etekcity Fitness Scale BLE → your scale's device card → Download Diagnostics**. This produces a redacted JSON dump of your config, coordinator state, and pending measurements. Attach it to your issue.
+2. **Download diagnostics.** Open **Settings → Devices & Services → Etekcity Fitness Scale BLE → your scale's device card → Download Diagnostics**. This produces a redacted JSON dump of your config, coordinator state and pending measurements. Attach it to your issue.
 3. **Include version info:**
    - Home Assistant version (Settings → About)
    - Integration version (visible on the scale's device card under **Configuration**)
-   - Scale model (ESF-551, FIT-8S, or ESF-24)
-4. **If it's a BLE / connection issue,** also enable library logging in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
+   - Scale model (ESF-551, FIT-8S or ESF-24)
+4. **If it's a BLE / connection issue,** also enable library logging in the integration's advanced settings, reproduce the problem and include the relevant log lines.
 
 Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues).
 
 ## Diagnosing Protocol Compatibility
 
-If you have an Etekcity BLE scale that isn't in the [Supported Devices](#supported-devices) list — or that's listed but isn't behaving the way the integration expects — you can help me diagnose the protocol-level compatibility by capturing a Bluetooth log of the official VeSync app talking to the scale. From that I can usually tell whether the scale speaks a protocol close to what this integration already understands, something different but parseable, or something out of reach — and we can figure out next steps from there.
+If you have an Etekcity BLE scale that isn't in the [Supported Devices](#supported-devices) list — or that's listed but isn't behaving the way the integration expects — you can help me diagnose the protocol-level compatibility by capturing a Bluetooth log of the official VeSync app talking to the scale. From that I can usually tell whether the scale speaks a protocol close to what this integration already understands, something different but parseable or something out of reach — and we can figure out next steps from there.
 
 ### Capturing the log on Android
 
@@ -229,7 +231,7 @@ If you have an Etekcity BLE scale that isn't in the [Supported Devices](#support
 
 Then trigger a bug report from Developer Options (interactive is enough, no need for a full one). Inside the resulting zip, look under `FS\data\misc\bluetooth\logs\` for one or more files whose names begin with `btsnoop_hci` — the exact suffix varies by Android version and manufacturer (`.log`, `.log.last`, `-1.log`, `-2.log`, etc.). If you see several, send all of them.
 
-> **Before sending: confirm the filenames start with `btsnoop_hci`, not `btsnooz_hci`.** (Note the 'z'.) The `btsnooz_hci*` variants are Android's truncated always-on diagnostic buffer — they exist even without HCI snoop logging enabled, and aren't usable for protocol analysis. If those are all you find, the snoop log wasn't actually capturing; double-check the developer option is on, toggle Bluetooth off and on, and redo from step 4. Catching this before sending saves an unnecessary round-trip.
+> **Before sending: confirm the filenames start with `btsnoop_hci`, not `btsnooz_hci`.** (Note the 'z'.) The `btsnooz_hci*` variants are Android's truncated always-on diagnostic buffer — they exist even without HCI snoop logging enabled, and aren't usable for protocol analysis. If those are all you find, the snoop log wasn't actually capturing; double-check the developer option is on, toggle Bluetooth off and on and redo from step 4. Catching this before sending saves an unnecessary round-trip.
 
 ### Capturing the log on iOS
 
@@ -242,12 +244,13 @@ Open a [GitHub issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_
 - The marketed model name (from the box)
 - The model code from the regulatory sticker on the back of the scale
 - All `btsnoop_hci*` log files from the bug report, attached to the issue (or a WeTransfer / Drive link if too large for GitHub) — see filename note above before attaching
-- For every weigh-in in the capture: the exact timestamp, every value the VeSync app showed (weight, body fat, water %, bone mass, etc.), and the user profile data that was active (sex, height, activity level, age)
-- A note on what the scale's display shows during a measurement and after — only the weight, or also other metrics, and whether the display changes over the course of the measurement until it stabilizes
+- For every weigh-in in the capture: the exact timestamp, every value the VeSync app showed (weight, body fat, water %, bone mass, etc.) and the user profile data that was active (sex, height, activity level, age)
+- A note on what the scale's display shows during a measurement and after — only the weight or also other metrics, and whether the display changes over the course of the measurement until it stabilizes
 
 ## Acknowledgments
 
 - FIT-8S support contributed by [@Flautz](https://github.com/Flautz) — thank you!
+- EFS-A591S support contributed by [@r3klawz](https://github.com/r3klawz) — thank you!
 
 
 ## Support the Project
@@ -262,6 +265,6 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Disclaimer
 
-This integration is not official. It is not endorsed by, directly affiliated with, maintained, authorized, or sponsored by Etekcity, VeSync Co., Ltd., or any of their affiliates or subsidiaries. All product and company names are the registered trademarks of their original owners. The use of any trade name or trademark is for identification and reference purposes only and does not imply any association with the trademark holder of their product brand.
+This integration is not official. It is not endorsed by, directly affiliated with, maintained, authorized or sponsored by Etekcity, VeSync Co., Ltd. or any of their affiliates or subsidiaries. All product and company names are the registered trademarks of their original owners. The use of any trade name or trademark is for identification and reference purposes only and does not imply any association with the trademark holder of their product brand.
 
 Use this integration at your own risk.
