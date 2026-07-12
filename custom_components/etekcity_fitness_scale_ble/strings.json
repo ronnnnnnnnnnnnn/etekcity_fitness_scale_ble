@@ -52,24 +52,31 @@
         "description": "Choose a device to set up",
         "data": {
           "address": "Device",
-          "scale_display_unit": "Scale Display Unit"
+          "scale_display_unit": "Scale display unit"
         }
       },
       "bluetooth_confirm": {
         "description": "Configure device options{esf24_note}",
         "data": {
-          "scale_display_unit": "Scale Display Unit"
+          "scale_display_unit": "Scale display unit",
+          "scale_model": "Scale model"
+        }
+      },
+      "choose_model": {
+        "title": "Choose scale model",
+        "description": "{name} was not recognized as a known model. Choose which supported scale protocol to try — ESF-551 is the most common. If none of them work, please open an issue with debug logs so support can be added.",
+        "data": {
+          "scale_model": "Scale model"
         }
       },
       "add_first_user": {
         "title": "Add User Profile",
         "description": "Create the first user profile for the scale",
         "data": {
-          "name": "User Name",
-          "person_entity": "Person Entity (optional)",
-          "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
-          "body_metrics_enabled": "Enable body composition metrics",
-          "add_another_user": "Add another user after saving"
+          "name": "User name",
+          "person_entity": "Person entity (optional)",
+          "mobile_notify_services": "Mobile devices for actionable notifications (optional)",
+          "body_metrics_enabled": "Enable body composition metrics"
         },
         "data_description": {
           "person_entity": "Only used when this scale has multiple users, to skip this user when their linked person is away from home at weigh-in time. Requires the person to have a working device tracker (e.g. their phone via the Home Assistant companion app). Leave blank to match by weight only.",
@@ -82,10 +89,9 @@
         "data": {
           "sex": "Sex",
           "height": "Height",
-          "birthdate": "Date of Birth",
+          "birthdate": "Date of birth",
           "feet": "Height (feet)",
-          "inches": "Height (inches)",
-          "add_another_user": "Add another user after saving"
+          "inches": "Height (inches)"
         }
       },
       "body_metrics": {
@@ -93,7 +99,7 @@
         "data": {
           "sex": "Sex",
           "height": "Height",
-          "birthdate": "Date of Birth"
+          "birthdate": "Date of birth"
         }
       }
     },
@@ -129,9 +135,9 @@
         "title": "Add User Profile",
         "description": "Create a new user profile for the scale",
         "data": {
-          "user_name": "User Name",
-          "person_entity": "Person Entity (optional)",
-          "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
+          "name": "User name",
+          "person_entity": "Person entity (optional)",
+          "mobile_notify_services": "Mobile devices for actionable notifications (optional)",
           "body_metrics_enabled": "Enable body composition metrics"
         },
         "data_description": {
@@ -145,23 +151,25 @@
         "data": {
           "sex": "Sex",
           "height": "Height",
-          "birthdate": "Date of Birth"
+          "birthdate": "Date of birth",
+          "feet": "Height (feet)",
+          "inches": "Height (inches)"
         }
       },
       "edit_user": {
         "title": "Edit User Profile",
         "description": "Select a user profile to edit",
         "data": {
-          "user_id": "User to Edit"
+          "user_id": "User to edit"
         }
       },
       "edit_user_details": {
         "title": "Edit User Details",
         "description": "Update user profile settings",
         "data": {
-          "user_name": "User Name",
-          "person_entity": "Person Entity (optional)",
-          "mobile_notify_services": "Mobile Devices for Actionable Notifications (optional)",
+          "name": "User name",
+          "person_entity": "Person entity (optional)",
+          "mobile_notify_services": "Mobile devices for actionable notifications (optional)",
           "body_metrics_enabled": "Enable body composition metrics"
         },
         "data_description": {
@@ -175,30 +183,32 @@
         "data": {
           "sex": "Sex",
           "height": "Height",
-          "birthdate": "Date of Birth"
+          "birthdate": "Date of birth",
+          "feet": "Height (feet)",
+          "inches": "Height (inches)"
         }
       },
       "remove_user": {
         "title": "Remove User Profile",
         "description": "Select a user profile to remove. Warning: This will remove all measurements for this user.",
         "data": {
-          "user_id": "User to Remove"
+          "user_id": "User to remove"
         }
       },
       "scale_settings": {
         "title": "Scale Settings",
         "description": "Configure scale display unit{esf24_note}",
         "data": {
-          "scale_display_unit": "Scale Display Unit"
+          "scale_display_unit": "Scale display unit"
         }
       },
       "advanced_settings": {
         "title": "Advanced Settings",
         "description": "Configure history limits and debugging options",
         "data": {
-          "history_retention_days": "History Retention (days)",
-          "max_history_size": "Max History Size (measurements)",
-          "enable_library_logging": "Enable Library Logging"
+          "history_retention_days": "History retention (days)",
+          "max_history_size": "Max history size (measurements)",
+          "enable_library_logging": "Enable library logging"
         },
         "data_description": {
           "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
-import fnmatch
 import logging
 import re
 import unicodedata
@@ -13,6 +12,11 @@ from typing import Any
 import voluptuous as vol
 from voluptuous.schema_builder import Marker
 
+from etekcity_esf551_ble import (
+    ETEKCITY_MANUFACTURER_ID,
+    detect_model,
+    is_etekcity_frame,
+)
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfo,
     async_discovered_service_info,
@@ -51,12 +55,8 @@ from .const import (
     CONF_USER_NAME,
     CONF_USER_PROFILES,
     CONF_WEIGHT_HISTORY,
-    BLUETOOTH_MATCHERS,
     BODY_METRICS_MODELS,
     DOMAIN,
-    EFSA591S_MODEL_CODES,
-    EFSA591S_MODEL_OFFSET,
-    ETEKCITY_MANUFACTURER_ID,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
     ScaleModel,
@@ -69,69 +69,132 @@ _LOGGER = logging.getLogger(__name__)
 _SLUG_RE = re.compile(r"[^a-z0-9]")
 
 
-def _device_matches_matcher(
-    discovery_info: BluetoothServiceInfo,
-    manufacturer_id: int | None,
-    local_name_pattern: str,
-) -> bool:
-    """Return True if discovery_info matches the given Bluetooth matcher."""
-    if manufacturer_id is not None and (
-        not discovery_info.manufacturer_data
-        or manufacturer_id not in discovery_info.manufacturer_data
-    ):
-        return False
-    name = discovery_info.name
-    if not name:
-        return False
-    return fnmatch.fnmatch(name.lower(), local_name_pattern.lower())
+# Bluetooth SIG manufacturer IDs that are not scale OEMs — filtering them out
+# of the manual-flow device list dramatically reduces the noise in a typical
+# household (AirPods, watches, earbuds, speakers, etc.) without ruling out
+# unknown scale variants.
+_KNOWN_NON_SCALE_MFR_IDS: frozenset[int] = frozenset(
+    {
+        # Phones / wearables / trackers — the dominant household BT noise
+        0x004C,  # Apple, Inc. — AirPods, AirTags, iBeacon, Find My, HomePod
+        0x0006,  # Microsoft — Surface, Xbox controllers
+        0x0075,  # Samsung Electronics Co. Ltd. — phones, watches, Galaxy Buds
+        0x00E0,  # Google (legacy entry) — Nest, older Pixel ecosystem
+        0x018E,  # Google LLC (current entry) — Fast Pair, Find My Device
+        0x067C,  # Tile, Inc. — Bluetooth trackers
+        # Audio gear
+        0x009E,  # Bose Corporation — headphones, speakers, soundbars
+        0x05A7,  # Sonos Inc — wireless speakers
+        0x0494,  # SENNHEISER electronic GmbH & Co. KG — headphones, mics
+        0x0055,  # Plantronics, Inc. (now Poly) — headsets
+        0x0103,  # Bang & Olufsen A/S — high-end audio
+        0x00CC,  # Beats Electronics — audio (legacy/standalone)
+        0x0057,  # Harman International — JBL, AKG, Harman/Kardon
+        0x065A,  # Marshall Group AB — speakers, headphones
+        0x07C9,  # Skullcandy, Inc. — headphones, earbuds
+        # Other common consumer electronics
+        0x01DA,  # Logitech International SA — keyboards, mice, webcams
+        0x02F2,  # GoPro, Inc. — action cameras
+        0x07A2,  # Roku, Inc. — TV streaming sticks/boxes
+        0x012D,  # Sony Corporation — TVs, headphones, cameras
+        0x068E,  # Razer Inc. — gaming peripherals
+        0x005C,  # Belkin International — accessories, chargers; owns Wemo
+        0x0171,  # Amazon.com Services LLC — Echo, Fire TV, Ring, Blink, Eero
+    }
+)
+
+# Service UUIDs that categorically identify a non-scale device class.
+_KNOWN_NON_SCALE_SERVICE_UUIDS: frozenset[str] = frozenset(
+    {
+        # Generic peripherals
+        "00001812-0000-1000-8000-00805f9b34fb",  # HID over GATT (keyboards, mice)
+        # Health devices that are explicitly NOT scales — scales have their
+        # own dedicated 0x181D Weight Scale Service
+        "00001808-0000-1000-8000-00805f9b34fb",  # Glucose
+        "00001809-0000-1000-8000-00805f9b34fb",  # Health Thermometer
+        "00001810-0000-1000-8000-00805f9b34fb",  # Blood Pressure
+        # Fitness equipment that isn't a scale
+        "00001816-0000-1000-8000-00805f9b34fb",  # Cycling Speed and Cadence
+        "00001818-0000-1000-8000-00805f9b34fb",  # Cycling Power
+        "00001826-0000-1000-8000-00805f9b34fb",  # Fitness Machine (treadmills)
+        # Trackers / beacons not necessarily caught by the mfr-ID filter
+        "00001819-0000-1000-8000-00805f9b34fb",  # Location and Navigation
+        "0000feaa-0000-1000-8000-00805f9b34fb",  # Eddystone (open beacon)
+    }
+)
 
 
-def _is_efsa591s(discovery_info: BluetoothServiceInfo) -> bool:
-    """Return True if the manufacturer data carries an EFS-A591S model code."""
-    mfr = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
-    return (
-        mfr is not None
-        and len(mfr) > EFSA591S_MODEL_OFFSET
-        and mfr[EFSA591S_MODEL_OFFSET] in EFSA591S_MODEL_CODES
-    )
+def _manual_picker_tier(discovery_info: BluetoothServiceInfo) -> int | None:
+    """Classify a discovered device for the manual picker.
 
+    Returns the admission tier, or None to hide the device:
+      1 — recognized scale model (library classifier)
+      2 — Etekcity-platform frame with an unrecognized model identifier
+          (unknown/new models on that platform are never hidden; includes
+          non-connectable broadcast scales)
+      3 — any other device that is not categorically a
+          non-scale (denylist above), so users can try unknown scales
 
-def _device_matches_any_matcher(discovery_info: BluetoothServiceInfo) -> bool:
-    """Return True if discovery_info matches any of our Bluetooth matchers (manifest)."""
-    # The EFS-A591S can't be matched by name (absent in passive scans, the
-    # ESF-551's name in active scans), so identify it by the manufacturer-data
-    # model byte before falling through to the name matchers.
-    if _is_efsa591s(discovery_info):
-        return True
-    return any(
-        _device_matches_matcher(discovery_info, mfr_id, name_pattern)
-        for _, mfr_id, name_pattern in BLUETOOTH_MATCHERS
-    )
-
-
-def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel:
-    """Detect the scale model based on advertisement data.
-
-    Uses BLUETOOTH_MATCHERS (aligned with manifest.json); first match wins.
+    Devices whose manufacturer ID or service UUIDs identify a non-scale
+    product class are hidden from the manual picker.
     """
-    # The EFS-A591S check runs ABOVE the BLUETOOTH_MATCHERS loop on purpose: it
-    # shares the ESF-551's manufacturer ID, and its name is unreliable (absent in
-    # passive scans, the ESF-551's in active scans), so the matchers cannot
-    # distinguish the two and would misidentify or miss it. It is identifiable
-    # only by the model byte in the manufacturer data, which those matchers do
-    # not inspect.
-    if _is_efsa591s(discovery_info):
-        _LOGGER.debug("Detected EFS-A591S scale: %s", discovery_info.name)
-        return ScaleModel.EFSA591S
+    if (
+        detect_model(
+            discovery_info.name,
+            discovery_info.manufacturer_data,
+            discovery_info.address,
+        )
+        is not None
+    ):
+        return 1
+    payload = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
+    if payload is not None and is_etekcity_frame(payload, discovery_info.address):
+        return 2
+    if _KNOWN_NON_SCALE_MFR_IDS & discovery_info.manufacturer_data.keys():
+        return None
+    if _KNOWN_NON_SCALE_SERVICE_UUIDS & set(discovery_info.service_uuids or []):
+        return None
+    return 3
 
-    for scale_model, manufacturer_id, local_name_pattern in BLUETOOTH_MATCHERS:
-        if _device_matches_matcher(discovery_info, manufacturer_id, local_name_pattern):
-            _LOGGER.debug(
-                "Detected %s scale: %s", scale_model.value, discovery_info.name
-            )
-            return scale_model
-    _LOGGER.debug("No matcher matched, defaulting to ESF-551: %s", discovery_info.name)
-    return ScaleModel.ESF551
+
+# Offered when the library cannot classify a device: the user picks which
+# supported protocol to try. Keys are the persisted ScaleModel values.
+_MODEL_CHOICES: dict[str, str] = {
+    ScaleModel.ESF551.value: "ESF-551 — standard scale (recommended first try)",
+    ScaleModel.EFSA591S.value: "EFS-A591S / Apex HR — encrypted connection, heart rate",
+    ScaleModel.ESF24.value: "ESF-24 — weight-only scale",
+    ScaleModel.FIT8S.value: "FIT-8S — broadcast-only scale (no connection)",
+}
+
+
+def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel | None:
+    """Detect the scale model from advertisement data (library classifier).
+
+    Returns None when the library cannot classify the device; callers must
+    then collect the model from the user via the model chooser instead of
+    assuming a default.
+    """
+    model = detect_model(
+        discovery_info.name,
+        discovery_info.manufacturer_data,
+        discovery_info.address,
+    )
+    if model is None:
+        _LOGGER.debug("Library could not classify %s", discovery_info.name)
+    else:
+        _LOGGER.debug("Detected %s scale: %s", model.value, discovery_info.name)
+    return model
+
+
+def _picker_label(title_text: str, discovery_info: BluetoothServiceInfo) -> str:
+    """Annotate a manual-picker entry with what we know about the device."""
+    model = detect_scale_model(discovery_info)
+    if model is not None:
+        return f"{title_text} [{model.value}]"
+    payload = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
+    if payload is not None and is_etekcity_frame(payload, discovery_info.address):
+        return f"{title_text} [Etekcity device — unknown model]"
+    return f"{title_text} [unknown device]"
 
 
 def _get_mobile_notify_services(hass) -> dict[str, str]:
@@ -397,16 +460,23 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Confirm discovery."""
-        scale_model = self.context.get("scale_model", ScaleModel.ESF551)
+        scale_model = self.context.get("scale_model")
 
         if user_input is not None:
-            # Store display unit and proceed to add first user (same flow for ESF24 and ESF551)
+            if CONF_SCALE_MODEL in user_input:
+                self.context["scale_model"] = ScaleModel(user_input[CONF_SCALE_MODEL])
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
             return await self.async_step_add_first_user()
 
         # Show confirmation form (same for both models; esf24_note adds context when ESF-24)
         description_placeholders = dict(self.context["title_placeholders"])
-        if scale_model == ScaleModel.ESF24:
+        if scale_model is None:
+            description_placeholders["esf24_note"] = (
+                " (unknown model — choose which supported scale protocol to try;"
+                " if none of them work, please open an issue with debug logs so"
+                " support can be added)"
+            )
+        elif scale_model == ScaleModel.ESF24:
             description_placeholders["esf24_note"] = (
                 " (ESF-24 detected - experimental support, weight only)"
             )
@@ -418,21 +488,23 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         else:
             description_placeholders["esf24_note"] = ""
 
+        schema: dict[Any, Any] = {}
+        if scale_model is None:
+            schema[vol.Required(CONF_SCALE_MODEL, default=ScaleModel.ESF551.value)] = (
+                vol.In(_MODEL_CHOICES)
+            )
+        schema[vol.Required(CONF_SCALE_DISPLAY_UNIT, default=UnitOfMass.KILOGRAMS)] = (
+            vol.In(
+                {
+                    UnitOfMass.KILOGRAMS: "Metric (kg)",
+                    UnitOfMass.POUNDS: "Imperial (lbs)",
+                }
+            )
+        )
         return self.async_show_form(
             step_id="bluetooth_confirm",
             description_placeholders=description_placeholders,
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_SCALE_DISPLAY_UNIT, default=UnitOfMass.KILOGRAMS
-                    ): vol.In(
-                        {
-                            UnitOfMass.KILOGRAMS: "Metric (kg)",
-                            UnitOfMass.POUNDS: "Imperial (lbs)",
-                        }
-                    ),
-                }
-            ),
+            data_schema=vol.Schema(schema),
         )
 
     def _convert_height_measurements(
@@ -475,7 +547,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Add first user during initial setup."""
-        scale_model = self.context.get("scale_model", ScaleModel.ESF551)
+        scale_model = self.context.get("scale_model") or ScaleModel.ESF551
 
         if user_input is not None:
             user_name = user_input[CONF_USER_NAME]
@@ -554,9 +626,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_SCALE_DISPLAY_UNIT: self.context[CONF_SCALE_DISPLAY_UNIT],
                     CONF_USER_PROFILES: [user_profile],
-                    CONF_SCALE_MODEL: self.context.get(
-                        "scale_model", ScaleModel.ESF551
-                    ),
+                    CONF_SCALE_MODEL: self.context.get("scale_model")
+                    or ScaleModel.ESF551,
                 },
             )
 
@@ -632,9 +703,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_SCALE_DISPLAY_UNIT: self.context[CONF_SCALE_DISPLAY_UNIT],
                     CONF_USER_PROFILES: [user_profile],
-                    CONF_SCALE_MODEL: self.context.get(
-                        "scale_model", ScaleModel.ESF551
-                    ),
+                    CONF_SCALE_MODEL: self.context.get("scale_model")
+                    or ScaleModel.ESF551,
                 },
             )
 
@@ -741,6 +811,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # Store display unit and proceed to add first user (same flow for ESF24 and ESF551)
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
+            if scale_model is None:
+                # Unknown device (picker tier 2/3): configuring it is an
+                # explicit experiment — let the user pick the protocol.
+                return await self.async_step_choose_model()
             return await self.async_step_add_first_user()
 
         current_addresses = self._async_current_ids()
@@ -751,8 +825,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             if address in current_addresses or address in self._discovered_devices:
                 continue
 
-            # Filter: include only devices matching our Bluetooth matchers (manifest)
-            if not _device_matches_any_matcher(discovery_info):
+            # Filter: recognized scales, Etekcity-platform frames, and
+            # connectable maybe-scales (see _manual_picker_tier)
+            if _manual_picker_tier(discovery_info) is None:
                 continue
 
             _LOGGER.debug("Found BT Scale")
@@ -774,8 +849,14 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="no_devices_found")
 
         titles = {
-            address: discovery.title
-            for (address, discovery) in self._discovered_devices.items()
+            address: _picker_label(discovery.title, discovery.discovery_info)
+            for address, discovery in sorted(
+                self._discovered_devices.items(),
+                key=lambda item: (
+                    _manual_picker_tier(item[1].discovery_info) or 9,
+                    item[1].title,
+                ),
+            )
         }
         return self.async_show_form(
             step_id="user",
@@ -790,6 +871,26 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                             UnitOfMass.POUNDS: "Imperial (lbs)",
                         }
                     ),
+                }
+            ),
+        )
+
+    async def async_step_choose_model(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Let the user pick a protocol for a device the library can't classify."""
+        if user_input is not None:
+            self.context["scale_model"] = ScaleModel(user_input[CONF_SCALE_MODEL])
+            return await self.async_step_add_first_user()
+
+        return self.async_show_form(
+            step_id="choose_model",
+            description_placeholders=self.context["title_placeholders"],
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SCALE_MODEL, default=ScaleModel.ESF551.value
+                    ): vol.In(_MODEL_CHOICES),
                 }
             ),
         )
