@@ -211,8 +211,8 @@
           "enable_library_logging": "Enable library logging"
         },
         "data_description": {
-          "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",
-          "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements.",
+          "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 0-365 days (0 = never delete by age).",
+          "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 0-1000 measurements (0 = unlimited).",
           "enable_library_logging": "When enabled, logs from the underlying etekcity_esf551_ble library will be included in the integration's logs. Useful for troubleshooting BLE communication issues."
         }
       }

@@ -1126,31 +1126,34 @@ class ScaleDataUpdateCoordinator:
         retention_days = self._get_history_retention_days()
         max_size = self._get_max_history_size()
 
-        # Remove measurements older than retention window
-        # Handle invalid timestamps gracefully to prevent crashes from corrupted data
-        cutoff_time = datetime.now() - timedelta(days=retention_days)
-        valid_measurements = []
-        for m in history:
-            timestamp_str = m.get("timestamp")
-            if not timestamp_str:
-                _LOGGER.warning("Measurement missing timestamp, removing: %s", m)
-                continue
-            try:
-                parsed_timestamp = datetime.fromisoformat(timestamp_str)
-                if parsed_timestamp >= cutoff_time:
-                    valid_measurements.append(m)
-            except (ValueError, TypeError) as ex:
-                _LOGGER.warning(
-                    "Invalid timestamp format '%s' in measurement, removing: %s",
-                    timestamp_str,
-                    ex,
-                )
-                continue
+        # retention_days == 0 means "never delete by age" - skip the age window
+        # entirely (max_size still applies as a hard cap below).
+        if retention_days > 0:
+            # Remove measurements older than retention window
+            # Handle invalid timestamps gracefully to prevent crashes from corrupted data
+            cutoff_time = datetime.now() - timedelta(days=retention_days)
+            valid_measurements = []
+            for m in history:
+                timestamp_str = m.get("timestamp")
+                if not timestamp_str:
+                    _LOGGER.warning("Measurement missing timestamp, removing: %s", m)
+                    continue
+                try:
+                    parsed_timestamp = datetime.fromisoformat(timestamp_str)
+                    if parsed_timestamp >= cutoff_time:
+                        valid_measurements.append(m)
+                except (ValueError, TypeError) as ex:
+                    _LOGGER.warning(
+                        "Invalid timestamp format '%s' in measurement, removing: %s",
+                        timestamp_str,
+                        ex,
+                    )
+                    continue
 
-        history[:] = valid_measurements
+            history[:] = valid_measurements
 
-        # Enforce max size (keep newest)
-        if len(history) > max_size:
+        # Enforce max size (keep newest); max_size == 0 means unlimited
+        if max_size > 0 and len(history) > max_size:
             history[:] = history[-max_size:]
 
     def _log_user_history(self, user_id: str, context: str) -> None:
