@@ -58,8 +58,7 @@
       "bluetooth_confirm": {
         "description": "Configure device options{esf24_note}",
         "data": {
-          "scale_display_unit": "Scale display unit",
-          "scale_model": "Scale model"
+          "scale_display_unit": "Scale display unit"
         }
       },
       "choose_model": {
@@ -116,7 +115,8 @@
       "already_configured": "Device is already configured",
       "cannot_remove_last_user": "Cannot remove the last user. At least one user profile is required for the scale to function.",
       "user_id_generation_failed": "Failed to generate unique user ID. This is extremely rare. Please try again.",
-      "invalid_user_name": "Invalid user name provided. Please try again."
+      "invalid_user_name": "Invalid user name provided. Please try again.",
+      "not_supported": "This device wasn't recognized as a supported scale. If it is one, you can still add it manually: Settings > Devices & Services > Add Integration > Etekcity Fitness Scale BLE."
     }
   },
   "options": {

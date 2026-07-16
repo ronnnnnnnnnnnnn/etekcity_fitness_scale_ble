@@ -450,6 +450,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Detect scale model from advertisement data
         scale_model = detect_scale_model(discovery_info)
+        if scale_model is None:
+            return self.async_abort(reason="not_supported")
         self.context["scale_model"] = scale_model
 
         self.context["title_placeholders"] = {"name": title(discovery_info)}
@@ -460,23 +462,17 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Confirm discovery."""
+        # Unclassified devices never reach this step (async_step_bluetooth
+        # aborts them), so scale_model in context is always set here.
         scale_model = self.context.get("scale_model")
 
         if user_input is not None:
-            if CONF_SCALE_MODEL in user_input:
-                self.context["scale_model"] = ScaleModel(user_input[CONF_SCALE_MODEL])
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
             return await self.async_step_add_first_user()
 
         # Show confirmation form (same for both models; esf24_note adds context when ESF-24)
         description_placeholders = dict(self.context["title_placeholders"])
-        if scale_model is None:
-            description_placeholders["esf24_note"] = (
-                " (unknown model — choose which supported scale protocol to try;"
-                " if none of them work, please open an issue with debug logs so"
-                " support can be added)"
-            )
-        elif scale_model == ScaleModel.ESF24:
+        if scale_model == ScaleModel.ESF24:
             description_placeholders["esf24_note"] = (
                 " (ESF-24 detected - experimental support, weight only)"
             )
@@ -489,10 +485,6 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders["esf24_note"] = ""
 
         schema: dict[Any, Any] = {}
-        if scale_model is None:
-            schema[vol.Required(CONF_SCALE_MODEL, default=ScaleModel.ESF551.value)] = (
-                vol.In(_MODEL_CHOICES)
-            )
         schema[vol.Required(CONF_SCALE_DISPLAY_UNIT, default=UnitOfMass.KILOGRAMS)] = (
             vol.In(
                 {
