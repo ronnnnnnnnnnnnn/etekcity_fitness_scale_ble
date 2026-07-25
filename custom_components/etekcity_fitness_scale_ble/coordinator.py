@@ -83,6 +83,31 @@ if IS_LINUX:
 _LOGGER = logging.getLogger(__name__)
 
 
+class _NoiseFilter(logging.Filter):
+    """Drop ``BleakOutOfConnectionSlotsError`` records from the library logger.
+
+    The etekcity_esf551_ble library logs *any* connect failure via
+    ``logger.exception(...)`` (ERROR + traceback). The failure most users
+    will ever see is this one exception, raised when the scale is
+    advertising but not connectable — typically its post-measurement
+    spin-down tail. The GATT models default to no cooldown, so every
+    straggler advertisement in that tail starts a fresh connect cycle that
+    ends this way. The integration recovers on the next real advertisement,
+    so the log line is just noise; genuine connection-slot exhaustion isn't
+    actionable from a log line either.
+
+    Bypassed when ``enable_library_logging`` is on, so debug sessions still
+    see every connect attempt.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        if exc is not None and type(exc).__name__ == "BleakOutOfConnectionSlotsError":
+            return False
+        # Belt-and-suspenders for records carrying the name but no exc_info.
+        return "BleakOutOfConnectionSlotsError" not in record.getMessage()
+
+
 def _norm_country_code(config: Any) -> str:
     """Extract normalized 2-letter country code from HA config."""
     raw = (getattr(config, "country", None) or "").upper()
@@ -1090,24 +1115,40 @@ class ScaleDataUpdateCoordinator:
 
         return entry.data.get(CONF_ENABLE_LIBRARY_LOGGING, False)
 
-    def _configure_library_logger(self) -> logging.Logger | None:
-        """Configure the etekcity_esf551_ble logger based on the advanced setting.
+    def _configure_library_logger(self) -> logging.Logger:
+        """Logger handed to the etekcity_esf551_ble client.
 
-        Returns:
-            A child logger to pass to the library when logging is enabled, otherwise None.
+        Always a child of this integration's logger, so library output lands in
+        our namespace: captured by HA's per-integration debug toggle, included
+        in diagnostics, and attributable to this device rather than to a
+        separate library tree.
+
+        When the advanced option is on we pin the child to DEBUG so
+        protocol-level frames show up regardless of the integration's own log
+        level. Otherwise the library logs at the integration's level, so HA's
+        per-integration "Enable debug logging" button reaches it too — pinning
+        a floor here would override that button and leave it producing nothing
+        from the library.
+
+        Also installs ``_NoiseFilter`` to drop ``BleakOutOfConnectionSlotsError``
+        records, which the library logs at ERROR with a traceback whenever the
+        scale advertises while not connectable. Verbose logging bypasses the
+        filter so debug sessions still see every connect attempt.
         """
-        library_root = logging.getLogger("etekcity_esf551_ble")
-
+        library_logger = _LOGGER.getChild("etekcity_esf551_ble")
         if self._is_library_logging_enabled():
-            # Re-enable and allow propagation so logs follow HA’s configured level.
-            library_root.disabled = False
-            library_root.propagate = True
-            return _LOGGER.getChild("etekcity_esf551_ble")
-
-        # Disable library logging entirely when the option is off.
-        library_root.disabled = True
-        library_root.propagate = False
-        return None
+            library_logger.setLevel(logging.DEBUG)
+            # Remove the noise filter so debug sessions see everything.
+            for log_filter in list(library_logger.filters):
+                if isinstance(log_filter, _NoiseFilter):
+                    library_logger.removeFilter(log_filter)
+        else:
+            # Reset to NOTSET so the parent (integration) level applies again
+            # if the user previously toggled the flag on.
+            library_logger.setLevel(logging.NOTSET)
+            if not any(isinstance(f, _NoiseFilter) for f in library_logger.filters):
+                library_logger.addFilter(_NoiseFilter())
+        return library_logger
 
     def _cleanup_history(self, user_profile: dict) -> None:
         """Remove old and excess measurements from history.
@@ -1347,8 +1388,6 @@ class ScaleDataUpdateCoordinator:
             # Initialize client based on scale model
             try:
                 library_logger = self._configure_library_logger()
-                if library_logger:
-                    _LOGGER.debug("Library logging enabled, passing child logger")
 
                 client_cls = SCALE_CLASSES.get(self._scale_model)
                 if client_cls is None:
@@ -1963,12 +2002,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user (newest measurement scenario)
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble.body_metrics import (
-                    BodyMetrics,
-                    Sex,
-                    _as_dictionary,
-                    _calc_age,
-                )
+                from etekcity_esf551_ble import BodyMetrics, Sex, calc_age
                 from datetime import date as dt_date
 
                 weight_kg = data.measurements.get("weight")
@@ -2008,11 +2042,11 @@ class ScaleDataUpdateCoordinator:
                                 if (sex_str or "").lower() == "female"
                                 else Sex.Male
                             )
-                            age = _calc_age(birthdate)
+                            age = calc_age(birthdate)
                             body_metrics = BodyMetrics(
                                 weight_kg, height_m, age, sex, impedance
                             )
-                            metrics_dict = _as_dictionary(body_metrics)
+                            metrics_dict = body_metrics.as_dict()
 
                             # Add body metrics to measurements
                             data.measurements.update(metrics_dict)
@@ -2498,12 +2532,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble.body_metrics import (
-                    BodyMetrics,
-                    Sex,
-                    _as_dictionary,
-                    _calc_age,
-                )
+                from etekcity_esf551_ble import BodyMetrics, Sex, calc_age
                 from datetime import date as dt_date
 
                 weight_kg = measurements.get("weight")
@@ -2543,11 +2572,11 @@ class ScaleDataUpdateCoordinator:
                                 if (sex_str or "").lower() == "female"
                                 else Sex.Male
                             )
-                            age = _calc_age(birthdate)
+                            age = calc_age(birthdate)
                             body_metrics = BodyMetrics(
                                 weight_kg, height_m, age, sex, impedance
                             )
-                            metrics_dict = _as_dictionary(body_metrics)
+                            metrics_dict = body_metrics.as_dict()
 
                             # Add body metrics to measurements
                             measurements.update(metrics_dict)
