@@ -35,6 +35,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_conversion import DistanceConverter
 
 from .const import (
+    CONF_ATHLETE,
     CONF_BIRTHDATE,
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
@@ -685,6 +686,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
+                CONF_ATHLETE: user_input.get(CONF_ATHLETE, False),
                 CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -747,6 +749,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             )
+
+        schema[vol.Required(CONF_ATHLETE, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_first_user_body_metrics",
@@ -1108,6 +1112,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
+                CONF_ATHLETE: user_input.get(CONF_ATHLETE, False),
                 CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -1172,6 +1177,8 @@ class ScaleOptionsFlow(OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             )
+
+        schema[vol.Required(CONF_ATHLETE, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_user_body_metrics",
@@ -1456,6 +1463,7 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_SEX: user_input[CONF_SEX],
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
+                CONF_ATHLETE: user_input.get(CONF_ATHLETE, False),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
 
@@ -1532,6 +1540,13 @@ class ScaleOptionsFlow(OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             )
+
+        schema[
+            vol.Required(
+                CONF_ATHLETE,
+                default=bool(current_user.get(CONF_ATHLETE, False)),
+            )
+        ] = cv.boolean
 
         return self.async_show_form(
             step_id="edit_user_body_metrics",

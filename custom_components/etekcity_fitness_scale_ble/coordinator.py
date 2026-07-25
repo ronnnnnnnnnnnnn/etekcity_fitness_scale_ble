@@ -46,6 +46,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
+    CONF_ATHLETE,
     CONF_ENABLE_LIBRARY_LOGGING,
     CONF_HISTORY_RETENTION_DAYS,
     CONF_MAX_HISTORY_SIZE,
@@ -2044,7 +2045,12 @@ class ScaleDataUpdateCoordinator:
                             )
                             age = calc_age(birthdate)
                             body_metrics = BodyMetrics(
-                                weight_kg, height_m, age, sex, impedance
+                                weight_kg,
+                                height_m,
+                                age,
+                                sex,
+                                impedance,
+                                athlete=bool(user_profile.get(CONF_ATHLETE, False)),
                             )
                             metrics_dict = body_metrics.as_dict()
 
@@ -2574,7 +2580,12 @@ class ScaleDataUpdateCoordinator:
                             )
                             age = calc_age(birthdate)
                             body_metrics = BodyMetrics(
-                                weight_kg, height_m, age, sex, impedance
+                                weight_kg,
+                                height_m,
+                                age,
+                                sex,
+                                impedance,
+                                athlete=bool(user_profile.get(CONF_ATHLETE, False)),
                             )
                             metrics_dict = body_metrics.as_dict()
 

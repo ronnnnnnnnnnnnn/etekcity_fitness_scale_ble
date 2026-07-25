@@ -6,14 +6,14 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Features
 
-- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight and display unit; experimental) and EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental)
+- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight, impedance, body composition; experimental) and EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
     - Uses an adaptive tolerance system that adjusts to each user's weight fluctuations over time.
     - Supports linking users to Home Assistant Person entities to exclude users who are `not_home`.
 - Real-time weight and impedance measurements
-- Optional body composition metrics (ESF-551, FIT-8S and EFS-A591S) including:
+- Optional body composition metrics (all supported models), with optional per-user Athlete Mode, including:
     - Body Mass Index (BMI)
     - Body Fat Percentage
     - Fat Free Weight
@@ -32,10 +32,9 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Notes
 
-- This integration does not currently support "Athlete Mode". All body composition measurements are based on standard calculations.
-- **ESF-24** scales receive weight sensors and display unit settings only; body composition is not currently supported for this model.
+- "Athlete Mode" is available as a per-user option on the body composition profile, applying the same athlete-tuned body fat calculation as the VeSync app's Athlete Mode toggle. Turning it on or off also recalculates that user's stored measurement history with the new curve.
 - **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24 and EFS-A591S, the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
-- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.7.0+) for scale communication.
+- This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.8.1+) for scale communication.
 
 ## Installation
 
@@ -62,11 +61,12 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 3. Search for "Etekcity Fitness Scale BLE" and select it.
 4. Follow the configuration steps:
     - Choose your preferred unit system (Metric or Imperial)
-    - For **ESF-551**, **FIT-8S** and **EFS-A591S**: optionally enable body composition metrics
-    - If body composition is enabled (ESF-551 / FIT-8S / EFS-A591S):
+    - Optionally enable body composition metrics
+    - If body composition is enabled:
         - Select your sex
         - Enter your date of birth
         - Enter your height
+        - Optionally enable Athlete Mode
 
 Devices that aren't recognized as a known model are never auto-discovered — they only appear when adding a device manually. In the manual device picker they show up labeled "[unknown device]" or "[Etekcity device — unknown model]". You can still configure them by choosing which supported scale protocol to try. If none of them work, please [open an issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues) with debug logs: they contain the device's model identifier when it broadcasts one, which is exactly what's needed to add support.
 
@@ -84,7 +84,9 @@ When adding or editing user profiles (**Settings → Devices & Services → Etek
   - When enabled, you'll receive a mobile notification with tap-to-assign buttons directly on your phone
   - Each candidate user gets a personalized notification with "This is me" and "Not me" buttons
 
-- **Enable body composition metrics (ESF-551 / FIT-8S / EFS-A591S only):** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth and height. Not available for ESF-24.
+- **Enable body composition metrics:** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth and height.
+
+- **Athlete mode (optional):** Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass. Every metric derived from body fat (fat-free weight, muscle, water, BMR, etc.) follows the adjusted value.
 
 ## Multi-User Support
 
@@ -175,7 +177,7 @@ This integration supports the following Etekcity scale models:
 |-------|--------|----------|
 | [ESF-551 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
 | [FIT-8S Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-fit-8s) | Experimental | Weight, impedance, body composition |
-| [ESF-24 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf24) | Experimental | Weight, display unit |
+| [ESF-24 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf24) | Experimental | Weight, impedance, body composition, display unit |
 | EFS-A591S-KUS (Apex HR) Smart Fitness Scale | Experimental | Weight, impedance, body composition, heart rate, display unit |
 
 *As an Amazon Associate I earn from qualifying purchases.*

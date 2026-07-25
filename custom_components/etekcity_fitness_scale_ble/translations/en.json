@@ -90,7 +90,11 @@
           "height": "Height",
           "birthdate": "Date of birth",
           "feet": "feet",
-          "inches": "inches"
+          "inches": "inches",
+          "athlete": "Athlete mode"
+        },
+        "data_description": {
+          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass."
         }
       },
       "body_metrics": {
@@ -153,7 +157,11 @@
           "height": "Height",
           "birthdate": "Date of birth",
           "feet": "feet",
-          "inches": "inches"
+          "inches": "inches",
+          "athlete": "Athlete mode"
+        },
+        "data_description": {
+          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass."
         }
       },
       "edit_user": {
@@ -185,7 +193,11 @@
           "height": "Height",
           "birthdate": "Date of birth",
           "feet": "feet",
-          "inches": "inches"
+          "inches": "inches",
+          "athlete": "Athlete mode"
+        },
+        "data_description": {
+          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass."
         }
       },
       "remove_user": {
