@@ -8,6 +8,7 @@ from etekcity_esf551_ble import HEART_RATE_KEY, IMPEDANCE_KEY, WEIGHT_KEY, Weigh
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import (
+    DOMAIN as SENSOR_DOMAIN,
     RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
@@ -23,6 +24,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -30,6 +32,7 @@ from .const import (
     BODY_METRICS_MODELS,
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
+    CONF_LAST_SYNCED_DISPLAY_UNIT,
     CONF_SCALE_DISPLAY_UNIT,
     CONF_SCALE_MODEL,
     CONF_USER_ID,
@@ -135,6 +138,60 @@ DIAGNOSTIC_SENSOR_DESCRIPTIONS = [
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
 ]
+
+
+def _sync_display_unit_overrides(
+    hass: HomeAssistant,
+    entry: config_entries.ConfigEntry,
+    display_unit: UnitOfMass,
+) -> None:
+    """Propagate a changed display-unit option to this entry's weight entities.
+
+    Writes the per-entity display unit (the same registry option the entity
+    settings dialog writes) for every weight-class sensor belonging to this
+    config entry. Scoped by entity id, unlike the global
+    async_update_suggested_units() sweep this replaces, so other integrations'
+    entities are never touched (see issue #24). Native values stay kg
+    throughout - only the display layer moves, so recorded history converts
+    cleanly instead of being relabeled (see #35).
+
+    Runs only when the option actually changed since the last sync (tracked in
+    entry data): per-entity units users set themselves survive restarts and
+    reloads, and are only overridden when the user explicitly changes the
+    integration-wide option.
+    """
+    last_synced = entry.data.get(CONF_LAST_SYNCED_DISPLAY_UNIT)
+    if last_synced == display_unit:
+        return
+
+    if last_synced is not None:
+        registry = er.async_get(hass)
+        for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if (
+                reg_entry.domain != SENSOR_DOMAIN
+                or reg_entry.original_device_class != SensorDeviceClass.WEIGHT
+            ):
+                continue
+            # async_update_entity_options replaces the whole per-domain options
+            # dict, so carry over any other stored sensor options (e.g. display
+            # precision) instead of clobbering them.
+            sensor_options = {
+                **(reg_entry.options.get(SENSOR_DOMAIN) or {}),
+                "unit_of_measurement": display_unit,
+            }
+            registry.async_update_entity_options(
+                reg_entry.entity_id, SENSOR_DOMAIN, sensor_options
+            )
+            _LOGGER.debug(
+                "Updated display unit for %s: %s -> %s",
+                reg_entry.entity_id,
+                last_synced,
+                display_unit,
+            )
+
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_LAST_SYNCED_DISPLAY_UNIT: display_unit}
+    )
 
 
 async def async_setup_entry(
@@ -285,17 +342,25 @@ async def async_setup_entry(
         )
 
     # Tell the coordinator the configured display unit. This drives the unit the
-    # scale itself shows (pushed to the scale) and the unit used in notifications.
-    # It deliberately does NOT set the Home Assistant sensor unit: the weight
-    # sensors report native kilograms with device_class=WEIGHT, so HA converts them
-    # to the user's preferred unit for display (unit system or per-entity override).
-    # Flipping the sensor unit here (via suggested_unit_of_measurement /
-    # async_update_suggested_units) rewrote the stored native value into the display
-    # unit and corrupted history on every switch; keeping native as kg lets HA
-    # convert cleanly across the whole history.
+    # scale itself shows (pushed to the scale, where supported) and the unit used
+    # in notifications.
     coordinator.set_display_unit(
         WeightUnit.KG if display_unit == UnitOfMass.KILOGRAMS else WeightUnit.LB
     )
+
+    # The HA-facing display unit is handled separately, in two pieces that both
+    # keep the sensors' native values in kilograms (rewriting native values is
+    # what corrupted history before #35):
+    # 1. New weight entities get the option's unit as a per-entity suggestion,
+    #    consumed once at first registration.
+    # 2. When the option changes, existing weight entities get a per-entity
+    #    registry override (scoped to this entry - never a global sweep).
+    # Either way HA converts kg -> display unit at render time, so the whole
+    # history stays consistent across unit switches.
+    for sensor in entities:
+        if getattr(sensor, "_attr_device_class", None) == SensorDeviceClass.WEIGHT:
+            sensor._attr_suggested_unit_of_measurement = display_unit
+    _sync_display_unit_overrides(hass, entry, display_unit)
 
     async_add_entities(entities)
 
