@@ -32,7 +32,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Notes
 
-- "Athlete Mode" is available as a per-user option on the body composition profile, applying the same athlete-tuned body fat calculation as the VeSync app's Athlete Mode toggle. Turning it on or off also recalculates that user's stored measurement history with the new curve.
+- "Athlete Mode" is available as a per-user option on the body composition profile, applying the same athlete-tuned body fat calculation as the VeSync app's Athlete Mode toggle.
 - **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24 and EFS-A591S, the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
 - This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.8.1+) for scale communication.
 
@@ -187,13 +187,8 @@ This integration supports the following Etekcity scale models:
 |-------|--------|----------|
 | [ESF-551 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
 | [FIT-8S Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-fit-8s) | Experimental | Weight, impedance, body composition |
-| [ESF-24 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf24) | Experimental | Weight, impedance, body composition, display unit |
-| EFS-A591S-KUS (Apex HR) Smart Fitness Scale | Experimental | Weight, impedance, body composition, heart rate, display unit |
-
-*As an Amazon Associate I earn from qualifying purchases.*
-
-**Where to buy ESF-551:** [🇺🇸 US](https://www.amazon.com/dp/B095YJW56C?tag=ronnnnnnn-20) · [🇬🇧 UK](https://www.amazon.co.uk/dp/B095YJW56C?tag=ronnnnnnn02-21) · [🇪🇸 ES](https://www.amazon.es/dp/B095YJW56C?tag=ronnnnnnn-21) · [🇫🇷 FR](https://www.amazon.fr/dp/B095YJW56C?tag=ronnnnnnn0b-21)  
-**Where to buy ESF-24:** [🇺🇸 US](https://www.amazon.com/dp/B07D7R25JV?tag=ronnnnnnn-20) · [🇮🇹 IT](https://www.amazon.it/dp/B07D7R25JV?tag=ronnnnnnn0a-21) · [🇫🇷 FR](https://www.amazon.fr/dp/B07D7R25JV?tag=ronnnnnnn0b-21)
+| [ESF-24 Smart Fitness Scale](https://us.vesync.com/product-detail/etekcity-esf24-smart-fitness-scale-335) | Experimental | Weight, impedance, body composition, display unit |
+| [EFS-A591S-KUS (Apex HR)](https://etekcity.com/collections/fitness-scales/products/hr-smart-fitness-scale) | Experimental | Weight, impedance, body composition, heart rate, display unit |
 
 Other Etekcity BLE fitness scale models may work but have not been tested. If you'd like to help diagnose protocol compatibility for an unsupported model, see [Diagnosing Protocol Compatibility](#diagnosing-protocol-compatibility).
 
