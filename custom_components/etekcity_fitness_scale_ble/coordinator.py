@@ -57,8 +57,10 @@ from .const import (
     CONF_USER_ID,
     CONF_USER_NAME,
     CONF_WEIGHT_HISTORY,
+    DOMAIN,
     HISTORY_RETENTION_DAYS,
     MAX_HISTORY_SIZE,
+    PASSIVE_SCAN_ISSUE_ID,
     ScaleModel,
     parse_notify_service,
 )
@@ -1426,6 +1428,7 @@ class ScaleDataUpdateCoordinator:
             native_passive = False
 
             # Check for native adapters with better error handling
+            adapter_check_ok = True
             try:
                 for adapter in manager._bluetooth_adapters.adapters.values():
                     if sources.get(adapter["address"]) is not None:
@@ -1444,6 +1447,34 @@ class ScaleDataUpdateCoordinator:
                 _LOGGER.warning("Error checking native Bluetooth adapters: %s", err)
                 native = False
                 native_passive = False
+                adapter_check_ok = False
+
+            # Surface (or clear) the passive-scanning repair issue. Tied to
+            # the host capability, not to which scanner path is chosen
+            # below: proxies coming and going must not delete/re-create the
+            # issue, since deletion erases the user's "ignore" flag and the
+            # issue would resurface on every topology change. Skipped
+            # entirely when adapter detection errored - a transient failure
+            # must not clear (and later resurface) an ignored issue.
+            if adapter_check_ok:
+                from homeassistant.helpers import issue_registry as ir
+
+                if IS_LINUX and native and not native_passive:
+                    ir.async_create_issue(
+                        self._hass,
+                        DOMAIN,
+                        PASSIVE_SCAN_ISSUE_ID,
+                        is_fixable=False,
+                        severity=ir.IssueSeverity.WARNING,
+                        translation_key="passive_scan_unavailable",
+                        learn_more_url=(
+                            "https://github.com/ronnnnnnnnnnnnn/"
+                            "etekcity_fitness_scale_ble#bluetooth-issues-"
+                            "with-a-native-linux-adapter-bluez"
+                        ),
+                    )
+                else:
+                    ir.async_delete_issue(self._hass, DOMAIN, PASSIVE_SCAN_ISSUE_ID)
 
             # Get ESPHome proxies with error handling
             esphome_clients: list[APIClient] = []

@@ -43,6 +43,10 @@
           }
         }
       }
+    },
+    "passive_scan_unavailable": {
+      "title": "Passive Bluetooth scanning is not available",
+      "description": "Your Bluetooth adapter can't do passive scanning (on Linux this usually means BlueZ experimental features are disabled), so when no ESPHome Bluetooth proxy is available the integration falls back to its own active scanner. This usually works, but it can race Home Assistant's shared scanner during startup (`org.bluez.Error.InProgress`) and fail to set up until things settle.\n\nFor reliable startup, enable BlueZ experimental features on the host: set `Experimental = true` in `/etc/bluetooth/main.conf` (requires BlueZ 5.56+ and kernel 5.10+), restart the bluetooth service, then restart Home Assistant. Home Assistant OS already has this enabled out of the box.\n\nThis is advisory — if your setup works fine, you can ignore this issue and it will stay ignored. It clears automatically once passive scanning becomes available."
     }
   },
   "config": {

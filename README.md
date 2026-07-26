@@ -197,9 +197,37 @@ Other Etekcity BLE fitness scale models may work but have not been tested. If yo
 - Make sure your scale is within range of your Home Assistant device, or within range of at least one ESPHome device configured as a Bluetooth proxy in Home Assistant.
 - If you encounter any issues, please check the Home Assistant logs for more information.
 
-### Raspberry Pi 4 and other Linux machines using BlueZ
+### Bluetooth issues with a native Linux adapter (BlueZ)
 
-If you encounter a `org.bluez.Error.InProgress` error, try the following in `bluetoothctl`:
+If setup occasionally fails with `org.bluez.Error.InProgress`, or
+measurements stop arriving on a machine using its own Bluetooth adapter,
+one possible cause seen on some systems (often around Home
+Assistant startup) is the integration's scanner conflicting with Home
+Assistant's shared Bluetooth scanner.
+
+**The durable fix for that cause — enable BlueZ passive scanning.**
+Whenever the integration uses the machine's own adapter, it prefers
+*passive* scanning, which coexists cleanly with Home Assistant's scanner.
+On Linux this requires BlueZ's experimental features.
+
+Home Assistant OS enables BlueZ experimental features out of the box, so this is
+typically relevant mostly to Container/Core installs on Linux (including Raspberry
+Pi). To enable BlueZ experimental features on a supported system (requires BlueZ >= 5.56 and kernel >= 5.10), on the host:
+
+1. Edit `/etc/bluetooth/main.conf` and set, under `[General]`:
+   `Experimental = true`
+2. Restart the Bluetooth service: `sudo systemctl restart bluetooth`
+3. Restart Home Assistant.
+
+When passive scanning isn't available, the integration logs a warning and
+raises an item under **Settings → System → Repairs**; both clear
+automatically once passive scanning becomes available. If your setup works
+fine as-is, you can simply ignore the repair — it won't come back unless
+the situation changes.
+
+**If the adapter is already stuck** (the `InProgress` error persists across
+retries), the adapter may be in a wedged state — which can have several
+causes, not all related to this integration. Reset it in `bluetoothctl`:
 
 ```
 power off
@@ -207,7 +235,9 @@ power on
 scan on
 ```
 
-(See [this GitHub issue](https://github.com/home-assistant/core/issues/76186#issuecomment-1204954485) for more information.)
+then restart Home Assistant. (See [this GitHub issue](https://github.com/home-assistant/core/issues/76186#issuecomment-1204954485) for more information.)
+This recovers a stuck adapter; if the cause was scanner contention,
+enabling passive scanning above can help prevent it from recurring.
 
 ## Reporting Issues
 
@@ -218,7 +248,7 @@ Before opening a GitHub issue:
 3. **Include version info:**
    - Home Assistant version (Settings → About)
    - Integration version (visible on the scale's device card under **Configuration**)
-   - Scale model (ESF-551, FIT-8S or ESF-24)
+   - Scale model (e.g. ESF-551, FIT-8S, ESF-24, EFS-A591S)
 4. **If it's a BLE / connection issue,** also enable library logging in the integration's advanced settings, reproduce the problem and include the relevant log lines.
 
 Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues).
