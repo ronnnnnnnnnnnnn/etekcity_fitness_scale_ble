@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import logging
 from math import floor
 import platform
+import time
 from collections.abc import Callable
 from functools import partial
 from typing import Any, Literal
@@ -41,6 +42,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.event import async_call_later
 from homeassistant.const import UnitOfMass
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
@@ -80,6 +82,30 @@ if IS_LINUX:
             OrPattern(0, AdvertisementDataType.FLAGS, b"\x1a"),
         ]
     )
+
+
+# Backoff for scale-client restarts triggered by BT-scanner-registration
+# changes (see `_async_registration_changed`). Without this, a scanner that
+# keeps failing to (re)start gets a full pipeline rebuild attempt on every
+# single registration event (e.g. each ESPHome proxy reconnect), which can
+# run often enough to saturate the HA event loop for hours.
+RESTART_BACKOFF_BASE_SECONDS = 30
+RESTART_BACKOFF_MAX_SECONDS = 1800  # 30 minutes
+
+
+# Hard floor between scale-client restart attempts triggered by a
+# registration event, measured from the *end* of the previous attempt
+# (see `_async_registration_changed`). HA's
+# scanner-registration callback isn't itself rate-limited, so without this
+# floor a flapping/bootlooping BT proxy could drive back-to-back
+# `_async_start()` cycles - no leak (that's fixed), but repeated real I/O
+# load faster than the backoff is meant to allow. Applies unconditionally
+# to every restart attempt made from a registration event, regardless of
+# whether a backoff retry happens to be pending - it does not touch the
+# backoff delay itself. Events landing inside the floor are deferred, not
+# dropped: they coalesce into a single retry scheduled for the floor's
+# expiry, so no registration event is ever lost.
+REGISTRATION_PREEMPT_DEBOUNCE_SECONDS = 5
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -567,41 +593,96 @@ class BleakScannerHybrid(BaseBleakScanner):
         self.seen_devices = {}
 
     async def start(self) -> None:
-        """Start scanning for devices."""
+        """Start scanning for devices.
+
+        Tolerates a partially-failing scanner instead of failing the whole
+        hybrid start. Previously a bare ``asyncio.gather`` here meant that if
+        one scanner's ``start()`` raised (e.g. native passive scanning
+        unavailable: "passive scanning on Linux requires BlueZ >= 5.56 with
+        --experimental enabled"), the exception propagated up while the
+        *other* scanner (e.g. the ESPHome proxy) had already finished
+        starting — but because ``self._scanning`` was never set to ``True``,
+        the ``except`` branch's call to ``self.stop()`` was a no-op (``stop``
+        early-returned when ``_scanning`` was falsy). The already-started
+        scanner was never stopped, leaking a live subscription. Each
+        subsequent registration-change restart (see
+        ``_async_registration_changed``) constructed a fresh
+        ``BleakScannerHybrid`` on top of the still-running leaked one, so
+        every incoming advertisement batch was processed once per leaked
+        instance — after enough restarts this alone saturated the event
+        loop, independent of restart frequency.
+
+        Now each scanner starts independently; a scanner whose ``start()``
+        raises is stopped explicitly and dropped, and scanning continues
+        with whichever scanners did start. Only if none of them start do we
+        raise.
+        """
         if self._scanning:
             return
 
         if not self._scanners:
             raise BleakError("No scanners available")
 
-        try:
-            # Start all scanners concurrently using asyncio.gather
-            await asyncio.gather(*[scanner.start() for scanner in self._scanners])
+        # Start all scanners concurrently, collecting failures instead of
+        # letting the first one abort everything.
+        results = await asyncio.gather(
+            *[scanner.start() for scanner in self._scanners],
+            return_exceptions=True,
+        )
 
-            # Check if at least one scanner started
-            if all(not getattr(s, "_scanning", False) for s in self._scanners):
-                raise BleakError("Failed to start any scanner")
+        started: list[BaseBleakScanner] = []
+        for scanner, result in zip(self._scanners, results):
+            if isinstance(result, BaseException):
+                _LOGGER.warning(
+                    "Failed to start %s (%s); continuing without it",
+                    type(scanner).__name__,
+                    result,
+                )
+                # The scanner's own start() failed, but it may still have
+                # partially initialized (e.g. subscribed to advertisements)
+                # before raising. Stop it explicitly here rather than via
+                # self.stop() — self._scanners still holds every scanner in
+                # this loop, so self.stop() would also stop scanners that
+                # already started successfully in this same pass.
+                try:
+                    await scanner.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+                if scanner is self._native_scanner:
+                    self._native_scanner = None
+                if scanner is self._proxy_scanner:
+                    self._proxy_scanner = None
+            else:
+                started.append(scanner)
 
-            self._scanning = True
-            _LOGGER.debug(
-                "Hybrid scanner started with %s and %s",
-                "native scanner"
-                if self._native_scanner in self._scanners
-                else "no native scanner",
-                "proxy scanner"
-                if self._proxy_scanner in self._scanners
-                else "no proxy scanner",
-            )
-        except Exception as ex:
-            _LOGGER.exception("Error starting hybrid scanner: %s", ex)
-            await self.stop()
-            raise
+        self._scanners = started
+
+        if not started:
+            _LOGGER.error("Error starting hybrid scanner: no scanner could start")
+            raise BleakError("Failed to start any scanner")
+
+        self._scanning = True
+        _LOGGER.debug(
+            "Hybrid scanner started with %s and %s",
+            "native scanner"
+            if self._native_scanner in self._scanners
+            else "no native scanner",
+            "proxy scanner"
+            if self._proxy_scanner in self._scanners
+            else "no proxy scanner",
+        )
 
     async def stop(self) -> None:
-        """Stop scanning for devices."""
-        if not self._scanning:
-            return
+        """Stop scanning for devices.
 
+        Stops every scanner in ``self._scanners`` unconditionally, not
+        gated behind ``self._scanning``. A hybrid that never finished
+        starting (e.g. ``self._scanning`` still ``False`` for any reason
+        other than the already-handled partial-failure path in
+        ``start()``) must still have its children stopped — otherwise a
+        live, subscribed scanner could again be stranded, as happened
+        before ``start()`` was fixed to clean up after itself.
+        """
         for scanner in self._scanners:
             try:
                 await scanner.stop()
@@ -693,6 +774,30 @@ class ScaleDataUpdateCoordinator:
         self._device_name = device_name
         self._scale_model = scale_model
         self._lock = asyncio.Lock()
+        # Set once by `async_stop`, under `_lock`. Lets a
+        # `_async_registration_changed` call that was already scheduled
+        # before the stop (e.g. a registration event that fired just
+        # before unload) notice, once it's its turn at the lock, that the
+        # coordinator is gone and bail out instead of building a new scale
+        # client after shutdown. Never reset - each config-entry setup
+        # creates a fresh coordinator instance.
+        self._stopped = False
+        # Backoff state for scanner-change restarts (see
+        # `_async_registration_changed`). Counts consecutive `_async_start`
+        # failures and holds the cancel handle of the (single, coalesced)
+        # scheduled retry.
+        self._restart_failures = 0
+        self._restart_retry_unsub: Callable[[], None] | None = None
+        # Monotonic timestamp of the end of the last `_async_start` attempt
+        # made from `_async_registration_changed`, used to enforce
+        # `REGISTRATION_PREEMPT_DEBOUNCE_SECONDS` on the pre-emption path.
+        self._last_restart_attempt_monotonic: float | None = None
+        # Scanning mode for the library's own fallback scanner, used only
+        # when `_get_bluetooth_scanner` returns None (native adapter, no
+        # ESPHome proxies). PASSIVE coexists with HA's shared scanner;
+        # `_get_bluetooth_scanner` downgrades it to ACTIVE when the adapter
+        # can't do passive scanning.
+        self._fallback_scanning_mode = BluetoothScanningMode.PASSIVE
         self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
         # Diagnostic-only listeners that don't receive scale data (just notifications to refresh)
         self._diagnostic_listeners: list[Callable[[], None]] = []
@@ -1313,23 +1418,32 @@ class ScaleDataUpdateCoordinator:
             # Get Bluetooth sources
             sources = manager._sources
             native = False
+            # Whether BlueZ exposes org.bluez.AdvertisementMonitorManager1
+            # for the adapter (bluetooth-adapters reports this as
+            # `passive_scan`) - i.e. whether bleak's passive scanning can
+            # work. Absent on Linux when BlueZ experimental features are
+            # disabled.
+            native_passive = False
 
             # Check for native adapters with better error handling
             try:
                 for adapter in manager._bluetooth_adapters.adapters.values():
                     if sources.get(adapter["address"]) is not None:
                         native = True
+                        native_passive = bool(adapter.get("passive_scan"))
                         _LOGGER.debug("Found native Bluetooth adapter: %s", adapter)
                         break
                 if not native:
-                    for adapter in manager._bluetooth_adapters.adapters.keys():
-                        if sources.get(adapter) is not None:
+                    for name, details in manager._bluetooth_adapters.adapters.items():
+                        if sources.get(name) is not None:
                             native = True
-                            _LOGGER.debug("Found native Bluetooth adapter: %s", adapter)
+                            native_passive = bool(details.get("passive_scan"))
+                            _LOGGER.debug("Found native Bluetooth adapter: %s", details)
                             break
             except (AttributeError, KeyError) as err:
                 _LOGGER.warning("Error checking native Bluetooth adapters: %s", err)
                 native = False
+                native_passive = False
 
             # Get ESPHome proxies with error handling
             esphome_clients: list[APIClient] = []
@@ -1353,6 +1467,42 @@ class ScaleDataUpdateCoordinator:
 
             # Initialize scanner with error handling
             scanner: BaseBleakScanner | None = None
+            # Default for the library's own fallback scanner (used when we
+            # return None below, i.e. native adapter with no proxies):
+            # PASSIVE, which coexists with HA's shared scanner via the
+            # BlueZ AdvertisementMonitor API.
+            self._fallback_scanning_mode = BluetoothScanningMode.PASSIVE
+            if native and not native_passive and not esphome_clients:
+                # Native adapter, no proxies, but BlueZ does not expose the
+                # AdvertisementMonitor API needed for passive scanning (on
+                # Linux this usually means BlueZ experimental features are
+                # disabled) - the library's passive scanner would fail hard
+                # at start. Fall back to an active scanner instead of
+                # failing setup, but explain how to get the race-free path:
+                # an active scanner can race HA's shared scanner during
+                # startup (org.bluez.Error.InProgress).
+                self._fallback_scanning_mode = BluetoothScanningMode.ACTIVE
+                if IS_LINUX:
+                    _LOGGER.warning(
+                        "Passive scanning is not available on this adapter "
+                        "(BlueZ AdvertisementMonitor API not exposed), so "
+                        "the scale library will use its own active scanner. "
+                        "This can fail with org.bluez.Error.InProgress "
+                        "while Home Assistant's shared scanner is starting "
+                        "up. For reliable startup, enable BlueZ "
+                        "experimental features (Experimental = true in "
+                        "/etc/bluetooth/main.conf; requires BlueZ >= 5.56 "
+                        "and kernel >= 5.10) and restart the bluetooth "
+                        "service"
+                    )
+                else:
+                    # Non-Linux: the library ignores the passive request
+                    # anyway (it only applies passive on Linux), so this is
+                    # just bookkeeping - no BlueZ guidance to give.
+                    _LOGGER.debug(
+                        "Passive scanning not available on this adapter; "
+                        "the scale library will use its own active scanner"
+                    )
             if len(esphome_clients) > 0:
                 try:
                     if native:
@@ -1445,11 +1595,15 @@ class ScaleDataUpdateCoordinator:
                 # hardware-appropriate default (e.g. FIT-8S uses a 10s window
                 # to deduplicate its advertising bursts; overriding it with 0
                 # would deliver duplicate measurements per weigh-in).
+                # `scanning_mode` only matters when `scanner` is None (the
+                # library then builds its own fallback scanner with it);
+                # `_get_bluetooth_scanner` downgrades it from PASSIVE to
+                # ACTIVE when the native adapter can't do passive scanning.
                 self._client = client_cls(
                     self.address,
                     self.update_listeners,
                     self._display_unit,
-                    scanning_mode=BluetoothScanningMode.PASSIVE,
+                    scanning_mode=self._fallback_scanning_mode,
                     bleak_scanner_backend=scanner,
                     logger=library_logger,
                 )
@@ -1498,17 +1652,159 @@ class ScaleDataUpdateCoordinator:
         self._hass.async_create_task(self._async_registration_changed())
 
     async def _async_registration_changed(self) -> None:
-        """Handle Bluetooth scanner registration changes asynchronously."""
-        _LOGGER.debug("Bluetooth scanner registration changed, restarting client")
-        try:
-            async with self._lock:
-                await self._async_start()
-        except Exception as ex:
-            _LOGGER.error(
-                "Failed to restart client after scanner registration change: %s", ex
-            )
+        """Restart the scale client to pick up a new/changed scanner.
 
-    @callback
+        Guarded by an exponential-backoff circuit breaker. Rebuilding the
+        whole BLE pipeline on every scanner-registration event with no
+        backoff means that once a restart starts failing persistently
+        (e.g. host BlueZ without passive-scanning support), each ESPHome
+        proxy reconnect triggers another full failing rebuild — and via the
+        leak in ``BleakScannerHybrid.start()`` fixed above, each one adds
+        more permanently-subscribed scanners on top, saturating the HA
+        event loop for hours. The backoff now governs only the
+        *self-scheduled* retries (the timer fired by
+        ``_schedule_restart_retry``, delay growing exponentially, 30s ->
+        30min cap): a *real* registration event (a scanner actually being
+        added/removed) instead cancels any pending backoff retry and
+        restarts immediately, since the event itself could be exactly
+        what fixes the failure (e.g. an ESPHome proxy reconnecting).
+
+        Registration events aren't rate-limited by HA itself, though, so a
+        flapping/bootlooping proxy could otherwise drive restart attempts
+        faster than the backoff is meant to allow (no leak, but repeated
+        real I/O load). `REGISTRATION_PREEMPT_DEBOUNCE_SECONDS` is a hard
+        floor on *every* restart attempt made from here, measured from
+        the end of the previous attempt (so even a slow attempt is
+        followed by a full quiet window), regardless of
+        whether a backoff retry happens to be pending - covering both a
+        flapping proxy during an active backoff and one whose restarts
+        happen to keep succeeding (no backoff pending at all). The check
+        and the restart attempt both happen under `_lock`, so a burst of
+        events arriving while a restart is already in flight queue up on
+        the lock and then re-check the floor against the latest attempt
+        (including one that just finished) instead of all slipping through
+        on a stale check made before they were queued. Events landing
+        inside the floor are deferred rather than dropped: they coalesce
+        into a single retry scheduled for the floor's expiry (pulling in
+        any pending backoff retry, whose delay is always longer than the
+        floor), preserving the invariant that every registration event
+        leads to a restart attempt - either immediately or as soon as the
+        floor allows. A successful restart resets the backoff.
+        """
+        async with self._lock:
+            if self._stopped:
+                # A registration event scheduled this call before
+                # `async_stop` ran (e.g. right before unload) but only
+                # got the lock afterwards - `async_stop` already tore
+                # down `self._client`; don't build a new one.
+                _LOGGER.debug(
+                    "Registration-change event arrived after the "
+                    "coordinator was stopped; ignoring"
+                )
+                return
+            since_last_attempt = (
+                None
+                if self._last_restart_attempt_monotonic is None
+                else time.monotonic() - self._last_restart_attempt_monotonic
+            )
+            if (
+                since_last_attempt is not None
+                and since_last_attempt < REGISTRATION_PREEMPT_DEBOUNCE_SECONDS
+            ):
+                # Defer, don't drop: restarts are edge-triggered (each one
+                # reads live scanner state only at the moment it runs), so
+                # an event discarded here would be lost until an unrelated
+                # future event fired - e.g. a second proxy registering
+                # seconds after the first would never get picked up.
+                # Coalesce it into a single retry at the floor's expiry
+                # instead. Any pending backoff retry is pulled in to that
+                # same expiry (`_schedule_restart_retry` replaces it): its
+                # delay is always longer than the floor (30s base vs 5s),
+                # and per the pre-emption rule below a real event should
+                # be acted on as soon as the floor allows.
+                remaining = REGISTRATION_PREEMPT_DEBOUNCE_SECONDS - since_last_attempt
+                self._schedule_restart_retry(remaining)
+                _LOGGER.debug(
+                    "Registration-change event arrived %.1fs after the "
+                    "last restart attempt (< %ds debounce floor); "
+                    "deferring restart by %.1fs",
+                    since_last_attempt,
+                    REGISTRATION_PREEMPT_DEBOUNCE_SECONDS,
+                    remaining,
+                )
+                return
+            if self._restart_retry_unsub is not None:
+                # A backoff retry is already scheduled, but this is a real
+                # registration-change event, not the retry timer firing
+                # (the timer's own callback clears `_restart_retry_unsub`
+                # before calling back in here) - cancel the pending retry
+                # and try now, since the event itself could be exactly
+                # what fixes the failure.
+                _LOGGER.debug(
+                    "Scale client restart already scheduled (backoff after "
+                    "%d failure(s)); registration-change event pre-empting "
+                    "it for an immediate retry",
+                    self._restart_failures,
+                )
+                self._restart_retry_unsub()
+                self._restart_retry_unsub = None
+            _LOGGER.debug("BT scanner registration changed; restarting scale client")
+            try:
+                await self._async_start()
+            except Exception:
+                self._restart_failures += 1
+                delay = min(
+                    RESTART_BACKOFF_BASE_SECONDS * (2 ** (self._restart_failures - 1)),
+                    RESTART_BACKOFF_MAX_SECONDS,
+                )
+                _LOGGER.exception(
+                    "Failed to restart scale client after scanner change "
+                    "(consecutive failure #%d); next retry in %ds",
+                    self._restart_failures,
+                    delay,
+                )
+                self._schedule_restart_retry(delay)
+            else:
+                if self._restart_failures:
+                    _LOGGER.info(
+                        "Scale client restart succeeded after %d failed "
+                        "attempt(s); resetting backoff",
+                        self._restart_failures,
+                    )
+                self._restart_failures = 0
+            finally:
+                # Stamp the *end* of the attempt, not the start: the floor
+                # guarantees a quiet window between the end of one attempt
+                # and the start of the next. Stamped at the start, events
+                # queued on the lock behind a slow attempt (scanner startup
+                # is real BLE I/O, up to 30s) would sail through the floor
+                # the moment the lock releases - back-to-back rebuilds
+                # exactly when rebuilds are most expensive.
+                self._last_restart_attempt_monotonic = time.monotonic()
+
+    def _schedule_restart_retry(self, delay: float) -> None:
+        """Schedule a single delayed restart retry.
+
+        Serves both the exponential-backoff retries after a failed restart
+        and the deferred restarts coalesced by the debounce floor. Cancels
+        any retry already pending before scheduling, so only one retry is
+        ever pending at a time - a new registration event pre-empts it
+        (immediately when outside the debounce floor, rescheduled to the
+        floor's expiry when inside it) rather than a second one being
+        scheduled alongside it. The handle is also cleared when the timer
+        fires and in `async_stop`.
+        """
+        if self._restart_retry_unsub is not None:
+            self._restart_retry_unsub()
+            self._restart_retry_unsub = None
+
+        @callback
+        def _retry(_now) -> None:
+            self._restart_retry_unsub = None
+            self._hass.async_create_task(self._async_registration_changed())
+
+        self._restart_retry_unsub = async_call_later(self._hass, delay, _retry)
+
     async def async_start(self) -> None:
         """Start the coordinator and initialize the scale client.
 
@@ -1558,13 +1854,34 @@ class ScaleDataUpdateCoordinator:
                     self._scanner_change_cb_unregister = None
                 raise
 
-    @callback
     async def async_stop(self) -> None:
-        """Stop the coordinator and clean up resources."""
+        """Stop the coordinator and clean up resources.
+
+        Runs under `_lock` so it can't race an in-flight `_async_start()`
+        (from `async_start` or `_async_registration_changed`) - without
+        it, a restart racing with unload could leave a freshly-built
+        client running after this returns. `_stopped` is set first, before
+        touching `self._client`, so a registration event that was already
+        scheduled before this call notices once it's its turn at the lock
+        and bails out instead of building a new client.
+        """
         _LOGGER.debug(
             "Stopping ScaleDataUpdateCoordinator for address: %s", self.address
         )
         async with self._lock:
+            self._stopped = True
+            # Cancel any pending backoff/deferred retry so a stopped or
+            # unloaded coordinator can't restart itself later. Done under
+            # the lock, right after setting `_stopped`: an in-flight
+            # restart holds the lock for its whole attempt, including
+            # scheduling a new retry on failure, so by the time we get the
+            # lock ourselves any such retry has already been scheduled and
+            # is visible here to cancel - it can't be scheduled afterwards
+            # and slip past this check, since `_stopped` makes any later
+            # restart attempt a no-op before it would reach that point.
+            if self._restart_retry_unsub is not None:
+                self._restart_retry_unsub()
+                self._restart_retry_unsub = None
             # Clean up scanner registration callback
             if self._scanner_change_cb_unregister:
                 try:
