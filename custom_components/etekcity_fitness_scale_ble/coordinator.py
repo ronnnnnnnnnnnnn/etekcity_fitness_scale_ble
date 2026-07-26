@@ -38,12 +38,12 @@ from etekcity_esf551_ble import (
     WeightUnit,
 )
 from habluetooth import HaScannerRegistration
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.event import async_call_later
-from homeassistant.const import UnitOfMass
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, UnitOfMass
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
 
@@ -800,6 +800,11 @@ class ScaleDataUpdateCoordinator:
         # `_get_bluetooth_scanner` downgrades it to ACTIVE when the adapter
         # can't do passive scanning.
         self._fallback_scanning_mode = BluetoothScanningMode.PASSIVE
+        # One-shot EVENT_HOMEASSISTANT_STARTED listener deferring the first
+        # ACTIVE-fallback start until HA has fully started (see
+        # `_async_start`). Only ever set when that fallback would otherwise
+        # fire into the boot window; cancelled in `async_stop`.
+        self._started_listener_unsub: Callable[[], None] | None = None
         self._listeners: dict[Callable[[], None], Callable[[ScaleData], None]] = {}
         # Diagnostic-only listeners that don't receive scale data (just notifications to refresh)
         self._diagnostic_listeners: list[Callable[[], None]] = []
@@ -1601,6 +1606,47 @@ class ScaleDataUpdateCoordinator:
                 )
                 raise  # Let caller handle retry logic
 
+            # Defer the first ACTIVE-fallback start until HA has fully
+            # started. An active StartDiscovery fired into the boot melee
+            # (HA's shared scanner starting, adapter firmware still
+            # loading) is the prime suspect for wedging some adapters into
+            # a persistent `org.bluez.Error.InProgress`, so wait out the
+            # window instead of racing it. The listener routes through
+            # `_async_registration_changed`, so the normal lock, debounce
+            # and backoff machinery applies when it fires. Entities stay
+            # idle until then; this branch is unreachable for reloads and
+            # late setups (state is already `running` then). The state
+            # check matches HA's own `async_at_started` helper - NOT
+            # `is_running`, which is already True during CoreState.starting
+            # (the <=15s wrap-up window between START and STARTED, i.e.
+            # peak boot churn - exactly what we're deferring past).
+            if (
+                scanner is None
+                and self._fallback_scanning_mode == BluetoothScanningMode.ACTIVE
+                and self._hass.state is not CoreState.running
+            ):
+                if self._started_listener_unsub is None:
+                    self._started_listener_unsub = self._hass.bus.async_listen_once(
+                        EVENT_HOMEASSISTANT_STARTED, self._on_ha_started
+                    )
+                    _LOGGER.info(
+                        "Deferring active-mode scanner start for %s until "
+                        "Home Assistant has finished starting, to avoid "
+                        "the BlueZ startup race",
+                        self.address,
+                    )
+                return
+
+            # A start is actually proceeding (a scanner became available,
+            # the passive fallback applies, or HA finished starting). A
+            # still-pending deferred start from an earlier pass would only
+            # force a redundant rebuild when STARTED fires - cancel it.
+            # Failure recovery isn't lost: if this start throws, the
+            # backoff machinery schedules the retry, not the listener.
+            if self._started_listener_unsub is not None:
+                self._started_listener_unsub()
+                self._started_listener_unsub = None
+
             # Initialize client based on scale model
             try:
                 library_logger = self._configure_library_logger()
@@ -1836,6 +1882,18 @@ class ScaleDataUpdateCoordinator:
 
         self._restart_retry_unsub = async_call_later(self._hass, delay, _retry)
 
+    @callback
+    def _on_ha_started(self, _event) -> None:
+        """Run the deferred first start once HA has fully started.
+
+        Routed through `_async_registration_changed` rather than calling
+        `_async_start` directly, so the deferred start gets the same
+        `_stopped` check, debounce and backoff treatment as any other
+        restart trigger.
+        """
+        self._started_listener_unsub = None
+        self._hass.async_create_task(self._async_registration_changed())
+
     async def async_start(self) -> None:
         """Start the coordinator and initialize the scale client.
 
@@ -1913,6 +1971,11 @@ class ScaleDataUpdateCoordinator:
             if self._restart_retry_unsub is not None:
                 self._restart_retry_unsub()
                 self._restart_retry_unsub = None
+            # Cancel a pending deferred first start (HA-started listener)
+            # for the same reason - a stopped coordinator must not revive.
+            if self._started_listener_unsub is not None:
+                self._started_listener_unsub()
+                self._started_listener_unsub = None
             # Clean up scanner registration callback
             if self._scanner_change_cb_unregister:
                 try:
