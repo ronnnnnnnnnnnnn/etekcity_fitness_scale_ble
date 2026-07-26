@@ -29,7 +29,7 @@ from homeassistant.const import (
     UnitOfLength,
     UnitOfMass,
 )
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.data_entry_flow import FlowResult, section
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_conversion import DistanceConverter
@@ -45,6 +45,7 @@ from .const import (
     CONF_HEIGHT,
     CONF_HISTORY_RETENTION_DAYS,
     CONF_INCHES,
+    CONF_KEEP_HISTORY_FOREVER,
     CONF_MAX_HISTORY_SIZE,
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
@@ -66,6 +67,10 @@ from .const import (
 from .sensor import SENSOR_DESCRIPTIONS
 
 _LOGGER = logging.getLogger(__name__)
+
+# Collapsible section key in the advanced-settings options form; the history
+# limit fields arrive nested under this key in user_input.
+SECTION_CLEANUP_LIMITS = "cleanup_limits"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]")
 
@@ -368,7 +373,7 @@ def title(discovery_info: BluetoothServiceInfo) -> str:
 class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for BT scale."""
 
-    VERSION = 3
+    VERSION = 4
     _entry: ConfigEntry
 
     def __init__(self) -> None:
@@ -917,6 +922,9 @@ class ScaleOptionsFlow(OptionsFlow):
         )
         self.max_history_size = config_entry.data.get(
             CONF_MAX_HISTORY_SIZE, MAX_HISTORY_SIZE
+        )
+        self.keep_history_forever = config_entry.data.get(
+            CONF_KEEP_HISTORY_FOREVER, False
         )
 
     async def async_step_init(
@@ -1680,11 +1688,17 @@ class ScaleOptionsFlow(OptionsFlow):
     ) -> FlowResult:
         """Change advanced settings."""
         if user_input is not None:
-            # Update settings
+            # Update settings. The cleanup limits arrive nested under their
+            # section key; they are stored even while keep-forever is enabled
+            # so the previous limits are restored when it is turned off again.
+            cleanup_limits = user_input[SECTION_CLEANUP_LIMITS]
             new_data = {
                 **self.config_entry.data,
-                CONF_HISTORY_RETENTION_DAYS: user_input[CONF_HISTORY_RETENTION_DAYS],
-                CONF_MAX_HISTORY_SIZE: user_input[CONF_MAX_HISTORY_SIZE],
+                CONF_KEEP_HISTORY_FOREVER: user_input[CONF_KEEP_HISTORY_FOREVER],
+                CONF_HISTORY_RETENTION_DAYS: cleanup_limits[
+                    CONF_HISTORY_RETENTION_DAYS
+                ],
+                CONF_MAX_HISTORY_SIZE: cleanup_limits[CONF_MAX_HISTORY_SIZE],
                 CONF_ENABLE_LIBRARY_LOGGING: user_input[CONF_ENABLE_LIBRARY_LOGGING],
             }
             self.hass.config_entries.async_update_entry(
@@ -1706,20 +1720,29 @@ class ScaleOptionsFlow(OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_HISTORY_RETENTION_DAYS,
-                        default=self.history_retention_days,
-                    ): vol.All(
-                        vol.Coerce(int),
-                        # 0 = never delete by age (keep history indefinitely)
-                        vol.Range(min=0, max=365),
-                    ),
-                    vol.Required(
-                        CONF_MAX_HISTORY_SIZE,
-                        default=self.max_history_size,
-                    ): vol.All(
-                        vol.Coerce(int),
-                        # 0 = unlimited (no cap on number of measurements)
-                        vol.Range(min=0, max=1000),
+                        CONF_KEEP_HISTORY_FOREVER,
+                        default=self.keep_history_forever,
+                    ): bool,
+                    vol.Required(SECTION_CLEANUP_LIMITS): section(
+                        vol.Schema(
+                            {
+                                vol.Required(
+                                    CONF_HISTORY_RETENTION_DAYS,
+                                    default=self.history_retention_days,
+                                ): vol.All(
+                                    vol.Coerce(int),
+                                    vol.Range(min=1, max=365),
+                                ),
+                                vol.Required(
+                                    CONF_MAX_HISTORY_SIZE,
+                                    default=self.max_history_size,
+                                ): vol.All(
+                                    vol.Coerce(int),
+                                    vol.Range(min=10, max=1000),
+                                ),
+                            }
+                        ),
+                        {"collapsed": True},
                     ),
                     vol.Required(
                         CONF_ENABLE_LIBRARY_LOGGING,

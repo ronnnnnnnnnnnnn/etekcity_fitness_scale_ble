@@ -218,14 +218,26 @@
         "title": "Advanced Settings",
         "description": "Configure history limits and debugging options",
         "data": {
-          "history_retention_days": "History retention (days)",
-          "max_history_size": "Max history size (measurements)",
+          "keep_history_forever": "Keep history forever",
           "enable_library_logging": "Enable library logging"
         },
         "data_description": {
-          "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 0-365 days (0 = never delete by age).",
-          "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 0-1000 measurements (0 = unlimited).",
+          "keep_history_forever": "Never delete weight measurements automatically. While enabled, the automatic cleanup limits below are ignored.",
           "enable_library_logging": "When enabled, logs from the underlying etekcity_esf551_ble library will be included in the integration's logs. Useful for troubleshooting BLE communication issues."
+        },
+        "sections": {
+          "cleanup_limits": {
+            "name": "Automatic cleanup limits",
+            "description": "Only apply while 'Keep history forever' is disabled.",
+            "data": {
+              "history_retention_days": "History retention (days)",
+              "max_history_size": "Max history size (measurements)"
+            },
+            "data_description": {
+              "history_retention_days": "How many days to keep weight measurements. Older measurements will be automatically removed. Range: 1-365 days.",
+              "max_history_size": "Maximum number of measurements to store per user. When exceeded, oldest measurements are removed. Range: 10-1000 measurements."
+            }
+          }
         }
       }
     },

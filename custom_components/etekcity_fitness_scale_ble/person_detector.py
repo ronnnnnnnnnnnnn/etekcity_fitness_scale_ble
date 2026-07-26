@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .adaptive_tolerance import get_tolerance_for_user
-from .const import CONF_PERSON_ENTITY
+from .const import CANDIDATE_PRUNE_MARGIN_KG, CONF_PERSON_ENTITY
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -89,8 +89,12 @@ class PersonDetector:
 
         Returns a list of candidate user IDs who could match this measurement.
         Candidates include:
-        1. Users whose weight is within adaptive tolerance
-        2. Users without weight history (new users or stale history 90+ days)
+        1. Users whose weight is within adaptive tolerance, closest first.
+           Competitive pruning (ported from multi-user-scale-core) drops
+           matches whose distance is more than CANDIDATE_PRUNE_MARGIN_KG
+           worse than the best match, so a clearly-better match wins
+           outright instead of raising an ambiguity.
+        2. Users without weight history (new users)
 
         All candidates are filtered by location (excludes users marked "not_home").
 
@@ -120,10 +124,10 @@ class PersonDetector:
                 user_profile, current_time
             )
 
-            # If tolerance is None, user has no usable history (new user or 90+ day gap)
+            # If tolerance is None, user has no usable history (new user)
             if tolerance_kg is None:
                 _LOGGER.debug(
-                    "User %s has no usable weight history (new user or stale data), adding as candidate",
+                    "User %s has no usable weight history (new user), adding as candidate",
                     user_name,
                 )
                 users_without_history.append(user_id)
@@ -140,7 +144,7 @@ class PersonDetector:
                     weight_diff,
                     tolerance_kg,
                 )
-                weight_matches.append(user_id)
+                weight_matches.append((weight_diff, user_id))
             else:
                 _LOGGER.debug(
                     "User %s does not match (ref: %.2f kg, current: %.2f kg, diff: %.2f kg > tolerance: %.2f kg)",
@@ -151,8 +155,29 @@ class PersonDetector:
                     tolerance_kg,
                 )
 
-        # Combine weight matches and users without history
-        all_candidates = weight_matches + users_without_history
+        # Sort weight matches by closeness and apply competitive pruning:
+        # drop matches that are clearly worse than the best one.
+        weight_matches.sort(key=lambda item: item[0])
+        kept_matches: list[str] = []
+        pruned_matches: list[str] = []
+        if weight_matches:
+            best_diff = weight_matches[0][0]
+            for diff, user_id in weight_matches:
+                if diff <= best_diff + CANDIDATE_PRUNE_MARGIN_KG:
+                    kept_matches.append(user_id)
+                else:
+                    pruned_matches.append(user_id)
+            if pruned_matches:
+                _LOGGER.debug(
+                    "Competitive pruning dropped %d candidate(s) more than %.1f kg "
+                    "further from the measurement than the best match: %s",
+                    len(pruned_matches),
+                    CANDIDATE_PRUNE_MARGIN_KG,
+                    pruned_matches,
+                )
+
+        # Combine weight matches (closest first) and users without history
+        all_candidates = kept_matches + users_without_history
 
         if not all_candidates:
             _LOGGER.debug(
@@ -165,7 +190,7 @@ class PersonDetector:
             "Found %d candidate(s) for weight %.2f kg: %d weight match(es), %d user(s) without history",
             len(all_candidates),
             weight_kg,
-            len(weight_matches),
+            len(kept_matches),
             len(users_without_history),
         )
 
@@ -187,7 +212,8 @@ class PersonDetector:
 
         A user has usable history if they have weight_history data that can be used
         to calculate adaptive tolerance (not None). This excludes new users and users
-        with stale data (90+ days old).
+        whose history has no valid timestamps. There is no staleness cutoff: old
+        history still counts as usable, matched with a wider (capped) tolerance.
 
         Args:
             user_profiles: List of user profile dictionaries with user_id.

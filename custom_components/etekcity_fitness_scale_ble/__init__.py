@@ -23,6 +23,9 @@ from .const import (
     CONF_CALC_BODY_METRICS,
     CONF_CREATED_AT,
     CONF_HEIGHT,
+    CONF_HISTORY_RETENTION_DAYS,
+    CONF_KEEP_HISTORY_FOREVER,
+    CONF_MAX_HISTORY_SIZE,
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
@@ -34,6 +37,8 @@ from .const import (
     CONF_USER_PROFILES,
     CONF_WEIGHT_HISTORY,
     DOMAIN,
+    HISTORY_RETENTION_DAYS,
+    MAX_HISTORY_SIZE,
     ScaleModel,
 )
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -197,6 +202,27 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         current_version = 3
         _LOGGER.info("Migration to version 3 prepared successfully")
+
+    # --- Migration v3 → v4: keep-forever toggle replaces "0 = unlimited" ---
+    if current_version < 4:
+        _LOGGER.info("Migrating config entry from version 3 to version 4")
+
+        # For a short window (PR #37, git main only) 0 meant "unlimited" for
+        # the history limits. Convert any stored 0 to the explicit
+        # keep-history-forever toggle and restore the numeric defaults, so the
+        # user's intent (never delete) is preserved exactly.
+        retention = new_data.get(CONF_HISTORY_RETENTION_DAYS, HISTORY_RETENTION_DAYS)
+        max_size = new_data.get(CONF_MAX_HISTORY_SIZE, MAX_HISTORY_SIZE)
+        if retention == 0 or max_size == 0:
+            new_data[CONF_KEEP_HISTORY_FOREVER] = True
+            if retention == 0:
+                new_data[CONF_HISTORY_RETENTION_DAYS] = HISTORY_RETENTION_DAYS
+            if max_size == 0:
+                new_data[CONF_MAX_HISTORY_SIZE] = MAX_HISTORY_SIZE
+            _LOGGER.info("Converted 0-valued history limit(s) to keep-history-forever")
+
+        current_version = 4
+        _LOGGER.info("Migration to version 4 prepared successfully")
 
     # Save all migrations at once with final version
     if entry.version != current_version:

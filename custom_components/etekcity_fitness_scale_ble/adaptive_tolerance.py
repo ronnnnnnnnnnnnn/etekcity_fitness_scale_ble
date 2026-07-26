@@ -19,7 +19,6 @@ from .const import (
     ADAPTIVE_TOLERANCE_MIN_MULTIPLIER,
     CONF_WEIGHT_HISTORY,
     DEFAULT_TOLERANCE_PERCENTAGE,
-    HISTORY_RETENTION_DAYS,
     MAX_TOLERANCE_KG,
     MIN_MEASUREMENTS_FOR_ADAPTIVE,
     MIN_TOLERANCE_KG,
@@ -334,23 +333,19 @@ def calculate_recency_multiplier(days_since_last: float) -> float:
     Returns:
         Multiplier >= 1.0, capped at RECENCY_SCALING_MAX
 
-    Examples:
+    Examples (rate 0.10):
         >>> calculate_recency_multiplier(0)
         1.0  # No scaling
         >>> calculate_recency_multiplier(7)
-        1.40  # ~40% increase
-        >>> calculate_recency_multiplier(14)
-        1.56  # ~56% increase
+        1.26  # ~26% increase
         >>> calculate_recency_multiplier(30)
-        1.82  # ~82% increase
-        >>> calculate_recency_multiplier(60)
-        2.16  # ~116% increase
+        1.55  # ~55% increase
         >>> calculate_recency_multiplier(90)
-        2.42  # ~142% increase
-        >>> calculate_recency_multiplier(100)
-        2.5  # Capped at max
+        1.95  # ~95% increase
+        >>> calculate_recency_multiplier(180)
+        2.34  # ~134% increase
         >>> calculate_recency_multiplier(365)
-        2.5  # Still capped
+        2.5  # Capped at max (cap reached at ~225 days)
     """
     if days_since_last <= 0:
         return RECENCY_SCALING_BASE
@@ -368,8 +363,12 @@ def get_tolerance_for_user(
     """Calculate final tolerance for a user.
 
     Combines base tolerance, adaptive tolerance, and recency scaling.
-    Returns (None, None) for users with no usable history (new users
-    or stale data beyond retention window).
+    Returns (None, None) only for users with no usable history (no
+    measurements, or none with a valid timestamp). There is deliberately
+    no hard staleness cutoff (ported from multi-user-scale-core): a user
+    returning after a long absence still gets a tolerance, just widened
+    by the capped recency multiplier, so they keep matching instead of
+    being reset to "new user".
 
     Args:
         user_profile: User profile dict with CONF_WEIGHT_HISTORY key
@@ -388,13 +387,13 @@ def get_tolerance_for_user(
             - Base tolerance: 3.0kg (4% of 75kg)
             - Adaptive tolerance: 2.5kg (user's std dev * 2.5)
             - Days since last: 7
-            - Recency multiplier: 1.4x
-            - Final: max(1.5, 2.5 * 1.4) = 3.5kg
-            >>> # Returns: (75.0, 3.5)
+            - Recency multiplier: 1.26x
+            - Final: max(1.5, 2.5 * 1.26) = 3.15kg
+            >>> # Returns: (75.0, 3.15)
 
-        User with stale history (90+ days):
-            >>> get_tolerance_for_user({...}, current_time)
-            (None, None)  # Treated as new user
+        User returning after 6 months (reference falls back to their
+        last measurement, recency multiplier capped at 2.5x):
+            >>> # Returns e.g.: (70.0, 7.0)
     """
     history = user_profile.get(CONF_WEIGHT_HISTORY, [])
     user_id = user_profile.get("user_id", "unknown")
@@ -423,16 +422,6 @@ def get_tolerance_for_user(
         return (None, None)
 
     days_since_last = (current_time - last_measurement_time).total_seconds() / 86400
-
-    if days_since_last > HISTORY_RETENTION_DAYS:
-        # Stale history - treat as new user
-        _LOGGER.debug(
-            "User %s has stale weight history (%.1f days > %d day retention) - cannot calculate tolerance",
-            user_name,
-            days_since_last,
-            HISTORY_RETENTION_DAYS,
-        )
-        return (None, None)
 
     _LOGGER.debug(
         "Calculating adaptive tolerance for user %s (%.1f days since last measurement, %d total measurements)",

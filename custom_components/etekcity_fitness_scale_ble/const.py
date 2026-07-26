@@ -63,6 +63,10 @@ MAX_HISTORY_SIZE = 100  # Maximum number of measurements per user (default)
 # Configurable history settings (v4+)
 CONF_HISTORY_RETENTION_DAYS = "history_retention_days"
 CONF_MAX_HISTORY_SIZE = "max_history_size"
+# When True, the age/size limits above are ignored and history is kept
+# forever (replaces the short-lived "0 = unlimited" semantics from PR #37;
+# stored 0 values are converted by the config entry v3 -> v4 migration)
+CONF_KEEP_HISTORY_FOREVER = "keep_history_forever"
 
 # Advanced settings
 CONF_ENABLE_LIBRARY_LOGGING = "enable_library_logging"
@@ -86,8 +90,16 @@ ADAPTIVE_TOLERANCE_MAX_MULTIPLIER = 1.5  # Adaptive tolerance <= 150% of base
 
 # Adaptive tolerance - recency scaling (sub-linear growth)
 RECENCY_SCALING_BASE = 1.0  # Base multiplier (no scaling for fresh data)
-RECENCY_SCALING_RATE = 0.15  # Rate coefficient for sqrt scaling
+# 0.10 matches multi-user-scale-core: with no hard staleness cutoff anymore,
+# a gentler curve keeps tolerances tighter for longer (cap reached ~225 days)
+RECENCY_SCALING_RATE = 0.10  # Rate coefficient for sqrt scaling
 RECENCY_SCALING_MAX = 2.5  # Maximum tolerance multiplier for stale data
+
+# Person detection - competitive pruning (ported from multi-user-scale-core).
+# When several users match within tolerance, candidates whose distance to the
+# measurement is more than this margin worse than the best match are dropped,
+# so a clearly-better match auto-assigns instead of raising an ambiguity.
+CANDIDATE_PRUNE_MARGIN_KG = 3.0
 
 
 def get_sensor_unique_id(device_name: str, user_id: str, sensor_key: str) -> str:

@@ -49,6 +49,7 @@ from .const import (
     CONF_ATHLETE,
     CONF_ENABLE_LIBRARY_LOGGING,
     CONF_HISTORY_RETENTION_DAYS,
+    CONF_KEEP_HISTORY_FOREVER,
     CONF_MAX_HISTORY_SIZE,
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_USER_ID,
@@ -1101,6 +1102,21 @@ class ScaleDataUpdateCoordinator:
 
         return entry.data.get(CONF_MAX_HISTORY_SIZE, MAX_HISTORY_SIZE)
 
+    def _get_keep_history_forever(self) -> bool:
+        """Check if the user disabled automatic history cleanup.
+
+        Returns:
+            True when age/size limits must not prune history (default: False).
+        """
+        if not self._config_entry_id:
+            return False
+
+        entry = self._hass.config_entries.async_get_entry(self._config_entry_id)
+        if not entry:
+            return False
+
+        return entry.data.get(CONF_KEEP_HISTORY_FOREVER, False)
+
     def _is_library_logging_enabled(self) -> bool:
         """Check if library logging is enabled in config entry.
 
@@ -1152,9 +1168,14 @@ class ScaleDataUpdateCoordinator:
         return library_logger
 
     def _cleanup_history(self, user_profile: dict) -> None:
-        """Remove old and excess measurements from history.
+        """Remove invalid, old, and excess measurements from history.
 
-        Enforces configurable HISTORY_RETENTION_DAYS and MAX_HISTORY_SIZE limits.
+        Entries with missing or unparseable timestamps are always removed
+        (corrupted data should never accumulate). The configurable retention and
+        size limits are skipped entirely when the user enabled "keep history
+        forever". Age-based pruning never removes a user's most recent valid
+        measurement: a dormant user keeps one identity anchor so person
+        detection can still match them when they return.
 
         Args:
             user_profile: User profile dict to cleanup.
@@ -1165,37 +1186,50 @@ class ScaleDataUpdateCoordinator:
             return
 
         # Get configurable limits
+        keep_forever = self._get_keep_history_forever()
         retention_days = self._get_history_retention_days()
         max_size = self._get_max_history_size()
 
-        # retention_days == 0 means "never delete by age" - skip the age window
-        # entirely (max_size still applies as a hard cap below).
-        if retention_days > 0:
-            # Remove measurements older than retention window
-            # Handle invalid timestamps gracefully to prevent crashes from corrupted data
-            cutoff_time = datetime.now() - timedelta(days=retention_days)
-            valid_measurements = []
-            for m in history:
-                timestamp_str = m.get("timestamp")
-                if not timestamp_str:
-                    _LOGGER.warning("Measurement missing timestamp, removing: %s", m)
-                    continue
-                try:
-                    parsed_timestamp = datetime.fromisoformat(timestamp_str)
-                    if parsed_timestamp >= cutoff_time:
-                        valid_measurements.append(m)
-                except (ValueError, TypeError) as ex:
-                    _LOGGER.warning(
-                        "Invalid timestamp format '%s' in measurement, removing: %s",
-                        timestamp_str,
-                        ex,
-                    )
-                    continue
+        # No age cutoff when the user keeps history forever (the timestamp
+        # validation below still runs unconditionally). retention_days <= 0 is
+        # tolerated defensively: the raw math would make "now" the cutoff and
+        # wipe the entire history.
+        cutoff_time = (
+            None
+            if keep_forever or retention_days <= 0
+            else datetime.now() - timedelta(days=retention_days)
+        )
+        valid_measurements = []
+        newest_valid: tuple[datetime, dict] | None = None
+        for m in history:
+            timestamp_str = m.get("timestamp")
+            if not timestamp_str:
+                _LOGGER.warning("Measurement missing timestamp, removing: %s", m)
+                continue
+            try:
+                parsed_timestamp = datetime.fromisoformat(timestamp_str)
+            except (ValueError, TypeError) as ex:
+                _LOGGER.warning(
+                    "Invalid timestamp format '%s' in measurement, removing: %s",
+                    timestamp_str,
+                    ex,
+                )
+                continue
+            if newest_valid is None or parsed_timestamp >= newest_valid[0]:
+                newest_valid = (parsed_timestamp, m)
+            if cutoff_time is None or parsed_timestamp >= cutoff_time:
+                valid_measurements.append(m)
 
-            history[:] = valid_measurements
+        if not valid_measurements and newest_valid is not None:
+            # Dormant user: always retain the most recent valid measurement so
+            # person detection keeps an identity anchor to match against
+            # (ported from multi-user-scale-core).
+            valid_measurements = [newest_valid[1]]
 
-        # Enforce max size (keep newest); max_size == 0 means unlimited
-        if max_size > 0 and len(history) > max_size:
+        history[:] = valid_measurements
+
+        # Enforce max size (keep newest); max_size <= 0 tolerated defensively
+        if not keep_forever and max_size > 0 and len(history) > max_size:
             history[:] = history[-max_size:]
 
     def _log_user_history(self, user_id: str, context: str) -> None:

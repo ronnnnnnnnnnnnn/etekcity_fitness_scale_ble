@@ -88,6 +88,16 @@ When adding or editing user profiles (**Settings → Devices & Services → Etek
 
 - **Athlete mode (optional):** Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass. Every metric derived from body fat (fat-free weight, muscle, water, BMR, etc.) follows the adjusted value.
 
+### Advanced Settings
+
+Under **Configure → Advanced Settings** you can control how measurement history is stored:
+
+- **Keep history forever:** Never delete weight measurements automatically. While enabled, the cleanup limits below are ignored.
+
+- **Automatic cleanup limits** (collapsed section): How many days of measurements to keep (1–365, default 90) and the maximum number of stored measurements per user (10–1000, default 100). Even when the whole history of a user is older than the retention window, their most recent measurement is always kept so automatic person detection can still recognize them when they return.
+
+- **Enable library logging:** Include the BLE library's logs in Home Assistant's logs, useful for troubleshooting communication issues.
+
 ## Multi-User Support
 
 This integration is designed for households with multiple users. You can create a unique profile for each person using the scale.
