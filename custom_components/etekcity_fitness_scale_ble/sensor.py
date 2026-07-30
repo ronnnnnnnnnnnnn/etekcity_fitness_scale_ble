@@ -27,6 +27,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
     BODY_METRICS_MODELS,
@@ -438,9 +439,42 @@ class ScaleSensor(RestoreSensor):
         """Restore last state from storage."""
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
-            self._attr_native_value = last_state.native_value
+            self._attr_native_value = self._restored_native_value(last_state)
             return True
         return False
+
+    def _restored_native_value(self, last_state: SensorExtraStoredData) -> Any:
+        """Return the stored native value, converted to this sensor's native unit.
+
+        Versions before 0.7.0 could persist restore data denominated in the
+        display unit (e.g. lb) instead of the entity's native unit (kg). The
+        stored unit is never restored onto the entity (see #35), but it must
+        not be ignored either: reinterpreting a lb number as kg produced a
+        one-time ~2.2x spike in recorded history on the first restart after
+        upgrading (see #39).
+        """
+        value = last_state.native_value
+        stored_unit = last_state.native_unit_of_measurement
+        native_unit = self._attr_native_unit_of_measurement
+        if (
+            isinstance(value, (int, float))
+            and stored_unit is not None
+            and native_unit is not None
+            and stored_unit != native_unit
+            and stored_unit in MassConverter.VALID_UNITS
+            and native_unit in MassConverter.VALID_UNITS
+        ):
+            converted = MassConverter.convert(value, stored_unit, native_unit)
+            _LOGGER.info(
+                "Converted restored value for %s from %s %s to %s %s",
+                self.entity_id,
+                value,
+                stored_unit,
+                converted,
+                native_unit,
+            )
+            return converted
+        return value
 
     async def async_get_last_sensor_data(self) -> SensorExtraStoredData | None:
         """Restore Sensor Extra Stored Data."""
@@ -549,12 +583,13 @@ class ScaleWeightSensor(ScaleSensor):
         """Restore last state from storage."""
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
-            self._attr_native_value = last_state.native_value
             # Do not restore native_unit_of_measurement: it must stay kg (the
             # entity description). Restoring it let the native unit drift to the
             # display unit, after which HA stopped converting and showed the kg
-            # value under the lb label. With native pinned to kg, HA converts the
-            # value to whatever display unit is selected.
+            # value under the lb label. The stored unit is only used to convert
+            # legacy restore data recorded in another unit back to kg; HA then
+            # converts the value to whatever display unit is selected.
+            self._attr_native_value = self._restored_native_value(last_state)
 
             address = self._id
             device_registry = dr.async_get(self.hass)
@@ -733,12 +768,13 @@ class ScaleUserWeightSensor(ScaleUserSensor):
         """Restore last state from storage."""
         if last_state := await self.async_get_last_sensor_data():
             _LOGGER.debug("Restoring previous state for sensor: %s", self.entity_id)
-            self._attr_native_value = last_state.native_value
             # Do not restore native_unit_of_measurement: it must stay kg (the
             # entity description). Restoring it let the native unit drift to the
             # display unit, after which HA stopped converting and showed the kg
-            # value under the lb label. With native pinned to kg, HA converts the
-            # value to whatever display unit is selected.
+            # value under the lb label. The stored unit is only used to convert
+            # legacy restore data recorded in another unit back to kg; HA then
+            # converts the value to whatever display unit is selected.
+            self._attr_native_value = self._restored_native_value(last_state)
 
             address = self._id
             device_registry = dr.async_get(self.hass)
