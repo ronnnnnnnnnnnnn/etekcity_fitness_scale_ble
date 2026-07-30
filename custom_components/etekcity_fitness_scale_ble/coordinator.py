@@ -16,7 +16,11 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from aioesphomeapi import APIClient, BluetoothProxyFeature
-from aioesphomeapi.model import BluetoothLEAdvertisement, DeviceInfo
+from aioesphomeapi.api_pb2 import (  # type: ignore[attr-defined]
+    BluetoothLEAdvertisementResponse,
+    BluetoothLERawAdvertisementsResponse,
+)
+from aioesphomeapi.model import APIVersion, BluetoothLEAdvertisement, DeviceInfo
 from bleak import BleakError
 from bleak.assigned_numbers import AdvertisementDataType
 from bleak.backends.device import BLEDevice
@@ -38,6 +42,7 @@ from etekcity_esf551_ble import (
     WeightUnit,
 )
 from habluetooth import HaScannerRegistration
+from habluetooth import get_manager as habluetooth_get_manager
 from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import device_registry as dr
@@ -150,13 +155,45 @@ class BluetoothNotAvailableError(Exception):
     pass
 
 
+def _get_bluetooth_manager() -> Any | None:
+    """Return HA's shared BluetoothManager, or None if unavailable.
+
+    Resolved via habluetooth's process-global accessor, which the bluetooth
+    integration populates eagerly (``set_manager``) during its
+    ``async_setup`` — i.e. before this integration's entries run
+    (``after_dependencies``). This is the authoritative source: HA's own
+    ``bluetooth.api`` derives its lazily-populated
+    ``hass.data["bluetooth_manager"]`` cache from it, so that key can lag
+    behind (absent on e.g. proxy-only installs until something touches the
+    api module — the trap the previous hass.data-based lookup fell into)
+    while the accessor is already valid.
+    """
+    try:
+        return habluetooth_get_manager()
+    except Exception:  # noqa: BLE001 - RuntimeError when not yet set
+        return None
+
+
 class BleakScannerESPHome(BaseBleakScanner):
     """
     A BLE scanner implementation that uses ESPHome devices as Bluetooth proxies.
 
-    This scanner connects to one or more ESPHome devices with Bluetooth proxy capability
-    and uses them to scan for Bluetooth advertisements. This allows for extended range
-    and coverage compared to a single local Bluetooth adapter.
+    This scanner piggybacks on Home Assistant's existing ESPHome API
+    connections to receive Bluetooth advertisements. This allows for extended
+    range and coverage compared to a single local Bluetooth adapter.
+
+    The scanner is deliberately wire-silent on those shared connections: it
+    never sends Subscribe/UnsubscribeBluetoothLEAdvertisementsRequest. HA's
+    esphome integration (bleak-esphome's ``connect_scanner``) has already
+    subscribed before the proxy's scanner source is even registered, the
+    firmware allows only one advertisement subscription per device anyway
+    ("Only one API subscription is allowed at a time"), and an Unsubscribe
+    sent on the shared connection would tear down HA's own advertisement
+    stream for every integration. Instead, a message callback is registered
+    directly on the live ``APIConnection`` — aioesphomeapi dispatches
+    incoming messages by message *type* to every handler registered on the
+    connection, regardless of which subscription elicited them — and only
+    that local handler is removed on stop.
     """
 
     def __init__(
@@ -164,7 +201,7 @@ class BleakScannerESPHome(BaseBleakScanner):
         detection_callback: Callable[[BLEDevice, AdvertisementData], None] | None,
         service_uuids: list[str] | None,
         scanning_mode: Literal["active", "passive"],
-        clients: list[APIClient],
+        clients: list[Any],
         **kwargs,
     ):
         """
@@ -174,17 +211,29 @@ class BleakScannerESPHome(BaseBleakScanner):
             detection_callback: Function called when a device advertisement is detected.
             service_uuids: Optional list of service UUIDs to filter advertisements.
             scanning_mode: Whether to use active or passive scanning.
-            clients: list of ESPHome API clients to use as Bluetooth proxies.
+            clients: list of bleak-esphome ``ESPHomeClientData``-shaped objects
+                (duck-typed: ``.client`` (APIClient), ``.device_info``
+                (DeviceInfo), ``.api_version`` (APIVersion)) for the ESPHome
+                devices to use as Bluetooth proxies. Carrying the cached
+                DeviceInfo/APIVersion avoids any wire round-trip at start()
+                (a ``device_info()`` call here has been seen to time out in
+                the field — issue #38).
             **kwargs: Additional arguments (not used).
         """
         super().__init__(detection_callback, service_uuids)
 
-        self._clients = list(clients)
+        # ESPHomeClientData is an unhashable slots dataclass (eq=True, no
+        # __hash__) and DeviceInfo contains lists, so all per-client state
+        # stays keyed by the identity-hashable APIClient.
+        self._clients: list[APIClient] = [cd.client for cd in clients]
         self._scanning = False
 
-        # Per-client tracking
+        # Per-client tracking, pre-seeded from HA's cached connection data
         self._client_info: dict[APIClient, DeviceInfo | None] = {
-            client: None for client in self._clients
+            cd.client: cd.device_info for cd in clients
+        }
+        self._client_api_version: dict[APIClient, APIVersion | None] = {
+            cd.client: cd.api_version for cd in clients
         }
         self._client_features: dict[APIClient, int] = {
             client: 0 for client in self._clients
@@ -205,69 +254,56 @@ class BleakScannerESPHome(BaseBleakScanner):
         # Track initialization success
         successful_clients = 0
 
-        # Initialize all clients
+        # Initialize all clients. No wire calls happen here: device info and
+        # API version were captured from HA's own connection data at
+        # construction time (probing the device again with device_info() is
+        # redundant and has been seen to time out in the field — issue #38).
         for client in self._clients:
             try:
-                # Check if client is connected
-                if hasattr(client, "is_connected") and not client.is_connected:
+                # A real APIClient has no public is_connected; the live
+                # connection object is what we register callbacks on, so its
+                # absence is the definitive "not connected" signal.
+                if getattr(client, "_connection", None) is None:
                     _LOGGER.warning(
                         "Client %s is not connected, skipping", client.address
                     )
                     continue
 
-                # Get device info with timeout
-                try:
-                    self._client_info[client] = await asyncio.wait_for(
-                        client.device_info(), timeout=5.0
-                    )
-                except asyncio.TimeoutError:
-                    _LOGGER.error("Timeout getting device info from %s", client.address)
-                    continue
-
-                # Detect Bluetooth features
+                # Detect Bluetooth features from the cached device info
                 self._client_features[client] = self._detect_bluetooth_features(client)
 
-                # Check if the client supports Bluetooth proxy
-                supports_proxy = False
-                try:
-                    supports_proxy = await asyncio.wait_for(
-                        self._supports_bluetooth_proxy(client), timeout=5.0
-                    )
-                except asyncio.TimeoutError:
-                    _LOGGER.error(
-                        "Timeout checking Bluetooth proxy support for %s",
-                        client.address,
-                    )
-                    continue
-
-                if supports_proxy:
-                    self._active_clients[client] = {
-                        "name": self._client_info[client].name,
-                        "features": self._client_features[client],
-                    }
-
-                    # Subscribe to advertisements with error handling
-                    try:
-                        self._subscribe_to_advertisements(client)
-                        successful_clients += 1
-                    except Exception as ex:
-                        _LOGGER.error(
-                            "Failed to subscribe to advertisements for %s: %s",
-                            client.address,
-                            ex,
-                        )
-                        continue
-
-                    _LOGGER.debug(
-                        "Client %s initialized with features: %s",
-                        self._client_info[client].name,
-                        self._client_features[client],
-                    )
-                else:
+                if not self._client_features[client]:
+                    # Mirrors HA itself, which deregisters proxies reporting
+                    # no Bluetooth feature flags.
                     _LOGGER.warning(
                         "Client %s does not support Bluetooth proxy, skipping",
                         client.address,
                     )
+                    continue
+
+                self._active_clients[client] = {
+                    "name": self._client_info[client].name,
+                    "features": self._client_features[client],
+                }
+
+                # Register the local advertisement callback with error handling
+                try:
+                    self._subscribe_to_advertisements(client)
+                    successful_clients += 1
+                except Exception as ex:
+                    _LOGGER.error(
+                        "Failed to subscribe to advertisements for %s: %s",
+                        client.address,
+                        ex,
+                    )
+                    self._active_clients.pop(client, None)
+                    continue
+
+                _LOGGER.debug(
+                    "Client %s initialized with features: %s",
+                    self._client_info[client].name,
+                    self._client_features[client],
+                )
             except Exception as ex:
                 _LOGGER.warning(
                     "Failed to initialize client %s: %s", client.address, ex
@@ -290,11 +326,18 @@ class BleakScannerESPHome(BaseBleakScanner):
         )
 
     async def stop(self) -> None:
-        """Stop scanning for devices."""
+        """Stop scanning for devices.
+
+        Only removes the locally registered message callbacks — nothing is
+        sent on the wire. In particular, no
+        UnsubscribeBluetoothLEAdvertisementsRequest goes out on HA's shared
+        connections, which would kill HA's own advertisement stream for the
+        proxy (the firmware tracks a single subscriber slot per device).
+        """
         if not self._scanning:
             return
 
-        # Unsubscribe from all clients
+        # Deregister the local callbacks from all clients
         for client, unsubscribe in self._client_unsubscribers.items():
             if unsubscribe:
                 try:
@@ -321,10 +364,41 @@ class BleakScannerESPHome(BaseBleakScanner):
         # ESPHome doesn't support additional filters
         pass
 
+    def _on_bluetooth_le_advertisement_response(self, client: APIClient, msg) -> None:
+        """Adapt a raw protobuf advertisement response to the model object.
+
+        Registered directly on the APIConnection (see
+        `_subscribe_to_advertisements`), so the payload is the protobuf
+        message rather than the BluetoothLEAdvertisement model that
+        aioesphomeapi's own subscribe helper would have produced.
+        """
+        try:
+            adv = BluetoothLEAdvertisement.from_pb(msg)
+        except Exception:
+            # Must never leak into aioesphomeapi's packet-processing path:
+            # on older versions an exception there tears down HA's shared
+            # ESPHome connection (isolated upstream since aioesphomeapi
+            # #1755, but cheap to guard here).
+            _LOGGER.exception(
+                "Error parsing advertisement response from %s", client.address
+            )
+            return
+        self._on_bluetooth_le_advertisement(client, adv)
+
     def _on_bluetooth_le_advertisement(
         self, client: APIClient, adv: BluetoothLEAdvertisement
     ) -> None:
         """Handle a Bluetooth LE advertisement from a specific client."""
+        try:
+            self._handle_bluetooth_le_advertisement(client, adv)
+        except Exception:
+            # See _on_bluetooth_le_advertisement_response: handler exceptions
+            # must not propagate into the connection's packet processing.
+            _LOGGER.exception("Error handling advertisement from %s", client.address)
+
+    def _handle_bluetooth_le_advertisement(
+        self, client: APIClient, adv: BluetoothLEAdvertisement
+    ) -> None:
         # Skip if we're filtering by service UUID and this device doesn't match
         if not self.is_allowed_uuid(adv.service_uuids):
             return
@@ -370,6 +444,18 @@ class BleakScannerESPHome(BaseBleakScanner):
 
     def _on_bluetooth_le_raw_advertisement(self, client: APIClient, response) -> None:
         """Handle raw Bluetooth LE advertisements from a specific client."""
+        try:
+            self._handle_bluetooth_le_raw_advertisement(client, response)
+        except Exception:
+            # See _on_bluetooth_le_advertisement_response: handler exceptions
+            # must not propagate into the connection's packet processing.
+            _LOGGER.exception(
+                "Error handling raw advertisements from %s", client.address
+            )
+
+    def _handle_bluetooth_le_raw_advertisement(
+        self, client: APIClient, response
+    ) -> None:
         if not hasattr(response, "advertisements"):
             _LOGGER.warning(
                 "Received raw advertisement response with unknown format from %s: %s",
@@ -440,23 +526,34 @@ class BleakScannerESPHome(BaseBleakScanner):
             self.call_detection_callbacks(device, advertisement_data)
 
     def _subscribe_to_advertisements(self, client: APIClient) -> None:
-        """Subscribe to the appropriate advertisement type based on features for a specific client."""
+        """Register a LOCAL advertisement callback on HA's live connection.
+
+        Deliberately does NOT call the client's subscribe_bluetooth_le_*
+        helpers: those send SubscribeBluetoothLEAdvertisementsRequest (the
+        firmware rejects it — HA already holds the device's single
+        subscriber slot) and their unsubscribers send
+        UnsubscribeBluetoothLEAdvertisementsRequest, which would tear down
+        HA's own advertisement stream. `APIConnection.add_message_callback`
+        registers the handler with no wire traffic, and its returned remover
+        is local-only. The message type must match what HA's subscription
+        elicits, so the raw/processed choice mirrors bleak-esphome's own
+        (`RAW_ADVERTISEMENTS` feature flag on the same cached DeviceInfo).
+        """
         features = self._client_features[client]
+        connection = client._connection  # noqa: SLF001
 
         if features & BluetoothProxyFeature.RAW_ADVERTISEMENTS:
-            self._client_unsubscribers[client] = (
-                client.subscribe_bluetooth_le_raw_advertisements(
-                    partial(self._on_bluetooth_le_raw_advertisement, client)
-                )
+            self._client_unsubscribers[client] = connection.add_message_callback(
+                partial(self._on_bluetooth_le_raw_advertisement, client),
+                (BluetoothLERawAdvertisementsResponse,),
             )
-            _LOGGER.debug("%s: Subscribed to raw advertisements", client.address)
+            _LOGGER.debug("%s: Listening for raw advertisements", client.address)
         else:
-            self._client_unsubscribers[client] = (
-                client.subscribe_bluetooth_le_advertisements(
-                    partial(self._on_bluetooth_le_advertisement, client)
-                )
+            self._client_unsubscribers[client] = connection.add_message_callback(
+                partial(self._on_bluetooth_le_advertisement_response, client),
+                (BluetoothLEAdvertisementResponse,),
             )
-            _LOGGER.debug("%s: Subscribed to processed advertisements", client.address)
+            _LOGGER.debug("%s: Listening for processed advertisements", client.address)
 
     def _detect_bluetooth_features(self, client: APIClient) -> int:
         """Detect supported Bluetooth features for a specific client."""
@@ -466,7 +563,13 @@ class BleakScannerESPHome(BaseBleakScanner):
 
         # Check if the device info has the bluetooth_proxy_feature_flags_compat method
         if hasattr(device_info, "bluetooth_proxy_feature_flags_compat"):
-            return device_info.bluetooth_proxy_feature_flags_compat(client.api_version)
+            # Use the API version cached alongside the device info —
+            # client.api_version is None while disconnected, which would
+            # raise TypeError inside the compat comparison.
+            api_version = self._client_api_version.get(client)
+            if api_version is None:
+                return 0
+            return device_info.bluetooth_proxy_feature_flags_compat(api_version)
 
         # Fallback detection based on features list
         features = device_info.features if device_info else []
@@ -475,40 +578,6 @@ class BleakScannerESPHome(BaseBleakScanner):
             return BluetoothProxyFeature.ACTIVE_CONNECTIONS
 
         return 0
-
-    async def _supports_bluetooth_proxy(self, client: APIClient) -> bool:
-        """Check if a specific ESPHome client supports Bluetooth proxy.
-
-        Args:
-            client: The APIClient to check
-
-        Returns:
-            bool: True if the client supports Bluetooth proxy, False otherwise.
-        """
-        # If we've already detected features, use that information
-        if self._client_features.get(client, 0) > 0:
-            return True
-
-        # Otherwise try to detect features
-        if client not in self._client_info or not self._client_info[client]:
-            try:
-                self._client_info[client] = await client.device_info()
-                self._client_features[client] = self._detect_bluetooth_features(client)
-                if self._client_features[client] > 0:
-                    return True
-            except Exception as ex:
-                _LOGGER.debug(
-                    "Error getting device info for %s: %s", client.address, ex
-                )
-                return False
-
-        # Fallback to subscription test
-        try:
-            unsub = client.subscribe_bluetooth_le_advertisements(lambda _: None)
-            unsub()
-            return True
-        except Exception:
-            return False
 
 
 class BleakScannerHybrid(BaseBleakScanner):
@@ -525,7 +594,7 @@ class BleakScannerHybrid(BaseBleakScanner):
         detection_callback: Callable[[BLEDevice, AdvertisementData], None] | None,
         service_uuids: list[str] | None,
         scanning_mode: Literal["active", "passive"],
-        clients: list[APIClient],
+        clients: list[Any],
         adapter: str | None = None,
         **kwargs,
     ):
@@ -536,7 +605,8 @@ class BleakScannerHybrid(BaseBleakScanner):
             detection_callback: Function called when a device advertisement is detected.
             service_uuids: Optional list of service UUIDs to filter advertisements.
             scanning_mode: Whether to use active or passive scanning.
-            clients: list of ESPHome API clients to use as Bluetooth proxies.
+            clients: list of bleak-esphome ``ESPHomeClientData``-shaped
+                objects for the ESPHome proxies (see BleakScannerESPHome).
             adapter: The Bluetooth adapter to use for native scanning (Linux only).
             **kwargs: Additional arguments passed to the native scanner.
         """
@@ -1398,7 +1468,7 @@ class ScaleDataUpdateCoordinator:
         Raises:
             BluetoothNotAvailableError: If bluetooth_manager is not available.
         """
-        manager = self._hass.data.get("bluetooth_manager")
+        manager = _get_bluetooth_manager()
         if not manager:
             raise BluetoothNotAvailableError(
                 "Bluetooth manager not available - Bluetooth integration may still be initializing"
@@ -1415,7 +1485,7 @@ class ScaleDataUpdateCoordinator:
                 no Bluetooth adapter/proxy is available.
         """
         try:
-            manager = self._hass.data.get("bluetooth_manager")
+            manager = _get_bluetooth_manager()
             if not manager:
                 _LOGGER.debug("Bluetooth manager not available yet")
                 raise BluetoothNotAvailableError(
@@ -1481,8 +1551,12 @@ class ScaleDataUpdateCoordinator:
                 else:
                     ir.async_delete_issue(self._hass, DOMAIN, PASSIVE_SCAN_ISSUE_ID)
 
-            # Get ESPHome proxies with error handling
-            esphome_clients: list[APIClient] = []
+            # Get ESPHome proxies with error handling. Keep the whole
+            # bleak-esphome ESPHomeClientData (client + cached device_info +
+            # api_version), not just the APIClient: the scanners use the
+            # cached info to avoid any wire round-trips at start() (a
+            # device_info() call there has timed out in the field, issue #38).
+            esphome_clients: list[Any] = []
             try:
                 proxies = [
                     item.data["source"]
@@ -1490,7 +1564,7 @@ class ScaleDataUpdateCoordinator:
                     if item.data.get("source_domain") == "esphome"
                 ]
                 esphome_clients = [
-                    sources.get(s).connector.client.keywords["client_data"].client
+                    sources.get(s).connector.client.keywords["client_data"]
                     for s in proxies
                     if sources.get(s)
                 ]
@@ -1915,7 +1989,7 @@ class ScaleDataUpdateCoordinator:
 
         # Register for scanner changes (if bluetooth_manager is available)
         # This callback will restart the client when adapters/proxies change
-        bluetooth_manager = self._hass.data.get("bluetooth_manager")
+        bluetooth_manager = _get_bluetooth_manager()
         if bluetooth_manager:
             self._scanner_change_cb_unregister = (
                 bluetooth_manager.async_register_scanner_registration_callback(
