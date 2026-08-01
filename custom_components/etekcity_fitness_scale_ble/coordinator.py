@@ -1137,29 +1137,63 @@ class ScaleDataUpdateCoordinator:
         if not user_profile:
             return []
         history = user_profile.get(CONF_WEIGHT_HISTORY, [])
-        # Normalize all measurements to ensure consistent field order
-        return [self._normalize_measurement(m) for m in history]
+        # Normalize all measurements to ensure consistent field order, skipping
+        # entries with a missing or non-numeric weight_kg: one corrupted entry
+        # must not raise on every state write and wedge the sensor.
+        normalized = []
+        for m in history:
+            weight_kg = m.get("weight_kg")
+            if isinstance(weight_kg, bool) or not isinstance(weight_kg, (int, float)):
+                _LOGGER.warning(
+                    "Skipping history entry with invalid weight_kg %r for user %s (timestamp: %s)",
+                    weight_kg,
+                    user_id,
+                    m.get("timestamp"),
+                )
+                continue
+            normalized.append(self._normalize_measurement(m))
+        return normalized
 
-    def get_user_history_for_display(self, user_id: str) -> list[dict]:
+    def get_user_history_for_display(
+        self, user_id: str, display_unit: str | None = None
+    ) -> list[dict]:
         """Get weight history formatted for display with user-friendly keys.
 
-        Converts weight to display unit and uses friendly key names.
+        Converts weight to the given display unit and uses friendly key names.
 
         Args:
             user_id: The user ID to get history for.
+            display_unit: Target mass unit (a ``UnitOfMass`` value), e.g. the
+                unit the calling entity's state is displayed in. When None,
+                falls back to the scale-LCD display unit configured for the
+                device.
 
         Returns:
             List of measurement dicts formatted for display with keys:
             - "Timestamp" (instead of "timestamp")
-            - "Weight (kg)" or "Weight (lbs)" (instead of "weight_kg"/"weight_lb")
+            - "Weight (kg)" / "Weight (lbs)" / "Weight (<unit>)"
+              (instead of "weight_kg")
             - "Impedance (Ω)" (instead of "impedance_ohm")
         """
-        from homeassistant.util.unit_conversion import MassConverter
-        from homeassistant.const import UnitOfMass
-
+        # The recorder stores {} for ALL of a state's attributes once they
+        # exceed MAX_STATE_ATTRS_BYTES (16 KB; ~85 bytes/entry → ~190 entries),
+        # and max_history_size is user-configurable up to 1000 — this cap must
+        # not be removed.
         history = self.get_user_history(user_id)[-20:]
-        display_unit = self.get_display_unit()
-        is_pounds = display_unit == WeightUnit.LB
+        if display_unit is None:
+            display_unit = (
+                UnitOfMass.POUNDS
+                if self.get_display_unit() == WeightUnit.LB
+                else UnitOfMass.KILOGRAMS
+            )
+        # Keep the historical key spellings for kg/lb (backward compatibility);
+        # any other mass unit gets a generic "Weight (<unit>)" key.
+        if display_unit == UnitOfMass.KILOGRAMS:
+            weight_key = "Weight (kg)"
+        elif display_unit == UnitOfMass.POUNDS:
+            weight_key = "Weight (lbs)"
+        else:
+            weight_key = f"Weight ({display_unit})"
 
         display_history = []
         for measurement in history:
@@ -1167,15 +1201,13 @@ class ScaleDataUpdateCoordinator:
             # Timestamp with friendly key
             display_measurement["Timestamp"] = measurement["timestamp"]
 
-            # Weight with friendly key and unit conversion if needed
-            weight_kg = measurement["weight_kg"]
-            if is_pounds:
-                weight_lb = MassConverter.convert(
-                    weight_kg, UnitOfMass.KILOGRAMS, UnitOfMass.POUNDS
-                )
-                display_measurement["Weight (lbs)"] = round(weight_lb, 2)
-            else:
-                display_measurement["Weight (kg)"] = round(weight_kg, 2)
+            # Weight with friendly key, converted to the display unit
+            display_measurement[weight_key] = round(
+                MassConverter.convert(
+                    measurement["weight_kg"], UnitOfMass.KILOGRAMS, display_unit
+                ),
+                2,
+            )
 
             # Impedance with friendly key
             if "impedance_ohm" in measurement:
@@ -1391,7 +1423,8 @@ class ScaleDataUpdateCoordinator:
     def _cleanup_history(self, user_profile: dict) -> None:
         """Remove invalid, old, and excess measurements from history.
 
-        Entries with missing or unparseable timestamps are always removed
+        Entries with missing or unparseable timestamps or a missing/non-numeric
+        weight_kg are always removed
         (corrupted data should never accumulate). The configurable retention and
         size limits are skipped entirely when the user enabled "keep history
         forever". Age-based pruning never removes a user's most recent valid
@@ -1434,6 +1467,12 @@ class ScaleDataUpdateCoordinator:
                     "Invalid timestamp format '%s' in measurement, removing: %s",
                     timestamp_str,
                     ex,
+                )
+                continue
+            weight_kg = m.get("weight_kg")
+            if isinstance(weight_kg, bool) or not isinstance(weight_kg, (int, float)):
+                _LOGGER.warning(
+                    "Measurement has invalid weight_kg %r, removing: %s", weight_kg, m
                 )
                 continue
             if newest_valid is None or parsed_timestamp >= newest_valid[0]:
@@ -3068,8 +3107,13 @@ class ScaleDataUpdateCoordinator:
                 other_users.append((user_id, user_name))
                 continue
 
-            # User has usable history - get last measurement for ranking
-            weight_history = user_profile.get(CONF_WEIGHT_HISTORY, [])
+            # User has usable history - get last measurement for ranking.
+            # Use the filtered accessor: entries with invalid weight_kg are
+            # skipped, so the history can come back empty here.
+            weight_history = self.get_user_history(user_id)
+            if not weight_history:
+                other_users.append((user_id, user_name))
+                continue
             last_weight = weight_history[-1]["weight_kg"]
             weight_diff = abs(weight_kg - last_weight)
             matching_users.append((user_id, weight_diff, user_name))

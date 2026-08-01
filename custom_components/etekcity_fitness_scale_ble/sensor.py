@@ -377,6 +377,13 @@ class ScaleSensor(RestoreSensor):
     """Base sensor implementation for Etekcity scale measurements."""
 
     _attr_should_poll = False
+    # Exclude the volatile history from recorder state rows: recorded states
+    # then carry only constant attributes, which the recorder dedupes to a
+    # single shared row instead of minting a new one per weigh-in. The history
+    # stays visible live (UI/templates) but is not persisted per-state.
+    # Entity.__init_subclass__ unions this up the MRO, so this one declaration
+    # covers every ScaleSensor subclass.
+    _unrecorded_attributes = frozenset({"weight_history"})
     _attr_has_entity_name = True
     _attr_available = False
 
@@ -657,11 +664,11 @@ class ScaleWeightSensor(ScaleSensor):
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
 
-        # Add weight history for this user (formatted for display)
-        if self._user_id is not None:
-            attrs["weight_history"] = self._coordinator.get_user_history_for_display(
-                self._user_id
-            )
+        # Add weight history for this user, converted to the unit the state
+        # is displayed in (registry override → suggested → native)
+        attrs["weight_history"] = self._coordinator.get_user_history_for_display(
+            self._user_id, display_unit=self.unit_of_measurement
+        )
 
         return attrs
 
@@ -842,11 +849,11 @@ class ScaleUserWeightSensor(ScaleUserSensor):
             SW_VERSION_KEY: self._attr_device_info.get(SW_VERSION_KEY),
         }
 
-        # Add weight history for this user (formatted for display)
-        if self._user_id is not None:
-            attrs["weight_history"] = self._coordinator.get_user_history_for_display(
-                self._user_id
-            )
+        # Add weight history for this user, converted to the unit the state
+        # is displayed in (registry override → suggested → native)
+        attrs["weight_history"] = self._coordinator.get_user_history_for_display(
+            self._user_id, display_unit=self.unit_of_measurement
+        )
 
         return attrs
 
@@ -876,6 +883,7 @@ class ScaleUserDirectorySensor(SensorEntity):
     """Diagnostic sensor that lists all users with their IDs."""
 
     _attr_should_poll = False
+    _unrecorded_attributes = frozenset({"users"})
     _attr_has_entity_name = True
 
     def __init__(
@@ -930,6 +938,7 @@ class ScalePendingMeasurementsSensor(SensorEntity):
     """Diagnostic sensor that lists pending (unassigned) measurements."""
 
     _attr_should_poll = False
+    _unrecorded_attributes = frozenset({"pending"})
     _attr_has_entity_name = True
 
     def __init__(
@@ -992,9 +1001,6 @@ class ScalePendingMeasurementsSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return pending measurements as attributes (formatted for display)."""
-        from homeassistant.util.unit_conversion import MassConverter
-        from homeassistant.const import UnitOfMass
-
         display_unit = self._coordinator.get_display_unit()
         is_pounds = display_unit == WeightUnit.LB
 
