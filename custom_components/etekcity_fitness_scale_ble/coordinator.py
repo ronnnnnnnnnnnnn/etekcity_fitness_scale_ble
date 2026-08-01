@@ -185,10 +185,10 @@ class _BluetoothTopology(NamedTuple):
 
     native: bool
     native_passive: bool
-    native_sources: frozenset
+    native_sources: frozenset[str]
     # bleak-esphome ESPHomeClientData objects; held strongly so identity
     # (`is`) comparison against a later walk is sound.
-    esphome_client_data: tuple
+    esphome_client_data: tuple[Any, ...]
 
 
 class _TopologyScan(NamedTuple):
