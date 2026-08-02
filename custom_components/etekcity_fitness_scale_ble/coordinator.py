@@ -12,7 +12,7 @@ import platform
 import time
 from collections.abc import Callable
 from functools import partial
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal
 from urllib.parse import quote
 
 from aioesphomeapi import APIClient, BluetoothProxyFeature
@@ -172,32 +172,6 @@ def _get_bluetooth_manager() -> Any | None:
         return habluetooth_get_manager()
     except Exception:  # noqa: BLE001 - RuntimeError when not yet set
         return None
-
-
-class _BluetoothTopology(NamedTuple):
-    """The slice of HA's Bluetooth topology this integration is built on.
-
-    Used as the snapshot for relevance-filtering scanner-registration
-    events (see `_topology_unchanged_since_last_start`). Scanner sources
-    belonging to other integrations (e.g. Shelly BLE proxies) are
-    deliberately not represented.
-    """
-
-    native: bool
-    native_passive: bool
-    native_sources: frozenset[str]
-    # bleak-esphome ESPHomeClientData objects; held strongly so identity
-    # (`is`) comparison against a later walk is sound.
-    esphome_client_data: tuple[Any, ...]
-
-
-class _TopologyScan(NamedTuple):
-    """Result of a `_scan_bluetooth_topology` walk."""
-
-    # False when native-adapter detection errored - the walk's topology is
-    # then untrustworthy and must never be used to suppress restarts.
-    adapter_check_ok: bool
-    topology: _BluetoothTopology
 
 
 class BleakScannerESPHome(BaseBleakScanner):
@@ -890,19 +864,6 @@ class ScaleDataUpdateCoordinator:
         # made from `_async_registration_changed`, used to enforce
         # `REGISTRATION_PREEMPT_DEBOUNCE_SECONDS` on the pre-emption path.
         self._last_restart_attempt_monotonic: float | None = None
-        # Relevance filter for scanner-registration events (both only
-        # touched under `_lock`, like the rest of the restart state).
-        # `_pending_topology` is the topology snapshot captured by the
-        # `_get_bluetooth_scanner` walk the scanner was built from;
-        # `_last_topology` is that snapshot promoted once the client
-        # actually started, and None whenever no client is running or the
-        # last start failed (None always lets a restart proceed). Holding
-        # the ESPHomeClientData objects strongly is deliberate: identity
-        # comparison against them detects a proxy that bounced (bleak-esphome
-        # builds a new client_data per connect) even when the source name
-        # is unchanged, and the held references make `is` checks sound.
-        self._pending_topology: _BluetoothTopology | None = None
-        self._last_topology: _BluetoothTopology | None = None
         # Scanning mode for the library's own fallback scanner, used only
         # when `_get_bluetooth_scanner` returns None (native adapter, no
         # ESPHome proxies). PASSIVE coexists with HA's shared scanner;
@@ -1552,122 +1513,50 @@ class ScaleDataUpdateCoordinator:
                 "Bluetooth manager not available - Bluetooth integration may still be initializing"
             )
 
-    def _scan_bluetooth_topology(self, manager: Any) -> _TopologyScan:
-        """Discover the Bluetooth topology this integration actually uses.
+    def _registration_event_concerns_us(self, registration: Any) -> bool:
+        """Whether a registration event's scanner is one this entry scans with.
 
-        Shared by `_get_bluetooth_scanner` (to build the scanner) and
-        `_topology_unchanged_since_last_start` (to relevance-filter
-        scanner-registration events) so both always see the same picture.
-        Scanner sources belonging to other integrations (e.g. Shelly BLE
-        proxies) are deliberately invisible here - they play no part in
-        this integration's scanning.
+        This integration scans only via native adapters and ESPHome
+        proxies; events for other integrations' scanners (e.g. Shelly BLE
+        proxies re-registering on every WebSocket reconnect) carry no
+        information for us, and restarting on them would abort an
+        in-flight connection/measurement for nothing. The event payload
+        names the exact scanner that changed, so classification is direct:
+        a native adapter is recognized by its source key (adapter address
+        or name), an ESPHome proxy by its bluetooth config entry
+        (source_domain == "esphome") or - covering an ADDED event racing
+        that entry's creation - by its scanner carrying bleak-esphome's
+        client_data connector shape (the same shape
+        `_get_bluetooth_scanner` consumes). Any inability to classify (no
+        source, manager unavailable, unexpected shapes) counts as
+        relevant, so a needed restart is never wrongly suppressed.
         """
-        sources = manager._sources
-        native = False
-        # Whether BlueZ exposes org.bluez.AdvertisementMonitorManager1
-        # for the adapter (bluetooth-adapters reports this as
-        # `passive_scan`) - i.e. whether bleak's passive scanning can
-        # work. Absent on Linux when BlueZ experimental features are
-        # disabled.
-        native_passive = False
-        native_sources: set[str] = set()
-
-        # Check for native adapters with better error handling
-        adapter_check_ok = True
+        scanner = getattr(registration, "scanner", None)
+        source = getattr(scanner, "source", None)
+        if not source:
+            return True
         try:
-            for adapter in manager._bluetooth_adapters.adapters.values():
-                if sources.get(adapter["address"]) is not None:
-                    if not native:
-                        native = True
-                        native_passive = bool(adapter.get("passive_scan"))
-                        _LOGGER.debug("Found native Bluetooth adapter: %s", adapter)
-                    native_sources.add(adapter["address"])
-            if not native:
-                for name, details in manager._bluetooth_adapters.adapters.items():
-                    if sources.get(name) is not None:
-                        if not native:
-                            native = True
-                            native_passive = bool(details.get("passive_scan"))
-                            _LOGGER.debug("Found native Bluetooth adapter: %s", details)
-                        native_sources.add(name)
-        except (AttributeError, KeyError) as err:
-            _LOGGER.warning("Error checking native Bluetooth adapters: %s", err)
-            native = False
-            native_passive = False
-            native_sources = set()
-            adapter_check_ok = False
-
-        # Get ESPHome proxies with error handling. Keep the whole
-        # bleak-esphome ESPHomeClientData (client + cached device_info +
-        # api_version), not just the APIClient: the scanners use the
-        # cached info to avoid any wire round-trips at start() (a
-        # device_info() call there has timed out in the field, issue #38).
-        esphome_clients: list[Any] = []
-        try:
-            proxies = [
-                item.data["source"]
-                for item in self._hass.config_entries.async_entries("bluetooth")
-                if item.data.get("source_domain") == "esphome"
-            ]
-            esphome_clients = [
-                sources.get(s).connector.client.keywords["client_data"]
-                for s in proxies
-                if sources.get(s)
-            ]
-            _LOGGER.debug("Found %d ESPHome Bluetooth proxies", len(esphome_clients))
-        except (AttributeError, KeyError, TypeError) as err:
-            _LOGGER.warning("Error getting ESPHome clients: %s", err)
-            esphome_clients = []
-
-        return _TopologyScan(
-            adapter_check_ok=adapter_check_ok,
-            topology=_BluetoothTopology(
-                native=native,
-                native_passive=native_passive,
-                native_sources=frozenset(native_sources),
-                esphome_client_data=tuple(esphome_clients),
-            ),
-        )
-
-    def _topology_unchanged_since_last_start(self) -> bool:
-        """Whether the topology matches what the running client was built from.
-
-        True only when a client is running (``_last_topology`` set) AND a
-        fresh topology walk matches the snapshot it was built from - in
-        that case a scanner-registration event carries no information for
-        this entry (e.g. a Shelly proxy's scanner re-registering) and the
-        restart can be skipped instead of aborting an in-flight
-        measurement session. ESPHome proxies are compared by
-        ``ESPHomeClientData`` *identity*: bleak-esphome builds a new
-        client_data on every proxy (re)connect, so a proxy that bounced -
-        even with the same source name - never compares as unchanged
-        (our message callbacks died with its old connection and the
-        rebuild must proceed). Any uncertainty (no snapshot, no manager,
-        detection error) returns False so the restart proceeds.
-        """
-        last = self._last_topology
-        if last is None:
-            return False
-        manager = _get_bluetooth_manager()
-        if not manager:
-            return False
-        try:
-            scan = self._scan_bluetooth_topology(manager)
-        except Exception:  # noqa: BLE001 - unknown topology must not filter
-            return False
-        if not scan.adapter_check_ok:
-            return False
-        current = scan.topology
-        return (
-            current.native == last.native
-            and current.native_passive == last.native_passive
-            and current.native_sources == last.native_sources
-            and len(current.esphome_client_data) == len(last.esphome_client_data)
-            and all(
-                any(client_data is held for held in last.esphome_client_data)
-                for client_data in current.esphome_client_data
+            manager = _get_bluetooth_manager()
+            if not manager:
+                return True
+            for name, details in manager._bluetooth_adapters.adapters.items():
+                if source in (name, details.get("address")):
+                    return True
+            for entry in self._hass.config_entries.async_entries("bluetooth"):
+                if (
+                    entry.data.get("source") == source
+                    and entry.data.get("source_domain") == "esphome"
+                ):
+                    return True
+            connector_client = getattr(
+                getattr(scanner, "connector", None), "client", None
             )
-        )
+            keywords = getattr(connector_client, "keywords", None)
+            if isinstance(keywords, dict) and "client_data" in keywords:
+                return True
+        except Exception:  # noqa: BLE001 - unclassifiable must not filter
+            return True
+        return False
 
     async def _get_bluetooth_scanner(self) -> BaseBleakScanner | None:
         """Get the optimal Bluetooth scanner based on available resources.
@@ -1679,10 +1568,6 @@ class ScaleDataUpdateCoordinator:
             BluetoothNotAvailableError: If bluetooth_manager is not available or
                 no Bluetooth adapter/proxy is available.
         """
-        # Reset the snapshot first: on any failure below it must not go
-        # stale, or a later successful `_async_start` could promote a
-        # topology that this walk didn't actually produce.
-        self._pending_topology = None
         try:
             manager = _get_bluetooth_manager()
             if not manager:
@@ -1691,19 +1576,61 @@ class ScaleDataUpdateCoordinator:
                     "Bluetooth manager not available - Bluetooth integration may still be initializing"
                 )
 
-            scan = self._scan_bluetooth_topology(manager)
-            adapter_check_ok = scan.adapter_check_ok
-            native = scan.topology.native
-            native_passive = scan.topology.native_passive
-            esphome_clients = scan.topology.esphome_client_data
+            # Get Bluetooth sources
+            sources = manager._sources
+            native = False
+            # Whether BlueZ exposes org.bluez.AdvertisementMonitorManager1
+            # for the adapter (bluetooth-adapters reports this as
+            # `passive_scan`) - i.e. whether bleak's passive scanning can
+            # work. Absent on Linux when BlueZ experimental features are
+            # disabled.
+            native_passive = False
 
-            # Snapshot the topology this scanner (or the library fallback)
-            # is being built from. Promoted to `_last_topology` only once
-            # the client actually starts (see `_async_start`); used by
-            # `_topology_unchanged_since_last_start` to relevance-filter
-            # scanner-registration events. Skipped when adapter detection
-            # errored - an unknown topology must never suppress restarts.
-            self._pending_topology = scan.topology if adapter_check_ok else None
+            # Check for native adapters with better error handling
+            adapter_check_ok = True
+            try:
+                for adapter in manager._bluetooth_adapters.adapters.values():
+                    if sources.get(adapter["address"]) is not None:
+                        native = True
+                        native_passive = bool(adapter.get("passive_scan"))
+                        _LOGGER.debug("Found native Bluetooth adapter: %s", adapter)
+                        break
+                if not native:
+                    for name, details in manager._bluetooth_adapters.adapters.items():
+                        if sources.get(name) is not None:
+                            native = True
+                            native_passive = bool(details.get("passive_scan"))
+                            _LOGGER.debug("Found native Bluetooth adapter: %s", details)
+                            break
+            except (AttributeError, KeyError) as err:
+                _LOGGER.warning("Error checking native Bluetooth adapters: %s", err)
+                native = False
+                native_passive = False
+                adapter_check_ok = False
+
+            # Get ESPHome proxies with error handling. Keep the whole
+            # bleak-esphome ESPHomeClientData (client + cached device_info +
+            # api_version), not just the APIClient: the scanners use the
+            # cached info to avoid any wire round-trips at start() (a
+            # device_info() call there has timed out in the field, issue #38).
+            esphome_clients: list[Any] = []
+            try:
+                proxies = [
+                    item.data["source"]
+                    for item in self._hass.config_entries.async_entries("bluetooth")
+                    if item.data.get("source_domain") == "esphome"
+                ]
+                esphome_clients = [
+                    sources.get(s).connector.client.keywords["client_data"]
+                    for s in proxies
+                    if sources.get(s)
+                ]
+                _LOGGER.debug(
+                    "Found %d ESPHome Bluetooth proxies", len(esphome_clients)
+                )
+            except (AttributeError, KeyError, TypeError) as err:
+                _LOGGER.warning("Error getting ESPHome clients: %s", err)
+                esphome_clients = []
 
             # Surface (or clear) the passive-scanning repair issue. Tied to
             # the host capability, not to which scanner path is chosen
@@ -1814,11 +1741,6 @@ class ScaleDataUpdateCoordinator:
 
     async def _async_start(self) -> None:
         """Initialize and start the scale client with improved error handling."""
-        # No client is (or will shortly be) running until this attempt
-        # succeeds - registration events must not be filtered while we're
-        # in flux, and a failed attempt must leave every event acting as a
-        # restart trigger.
-        self._last_topology = None
         try:
             if self._client:
                 _LOGGER.debug("Stopping existing client")
@@ -1923,14 +1845,6 @@ class ScaleDataUpdateCoordinator:
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)
                 _LOGGER.debug("Scale client started successfully")
-                # The client is running on the topology `_get_bluetooth_scanner`
-                # walked (NOT one recomputed now: a proxy that bounced during
-                # the slow BLE start above must still register as changed, or
-                # the queued registration event would be filtered out and the
-                # scanner left listening on a dead connection). From here on,
-                # registration events that don't change this snapshot are
-                # irrelevant and get skipped instead of aborting the client.
-                self._last_topology = self._pending_topology
             except asyncio.TimeoutError:
                 _LOGGER.error(
                     "Timeout while starting scale client for %s", self.address
@@ -2025,21 +1939,22 @@ class ScaleDataUpdateCoordinator:
                     "coordinator was stopped; ignoring"
                 )
                 return
-            if self._topology_unchanged_since_last_start():
-                # The event is real but irrelevant to this entry: the
-                # native adapter and every ESPHome proxy we're built on are
-                # exactly as the running client left them. Typically another
-                # integration's scanner re-registering (e.g. Shelly BLE
-                # proxies bounce on every WebSocket reconnect) - restarting
-                # here would abort an in-flight connection/measurement for
-                # nothing. Deferred debounce retries also land here and
-                # become no-ops when an interim rebuild already captured
-                # the current topology.
+            if registration is not None and not self._registration_event_concerns_us(
+                registration
+            ):
+                # The event is real but names a scanner this entry doesn't
+                # use - typically another integration's scanner
+                # re-registering (e.g. Shelly BLE proxies bounce on every
+                # WebSocket reconnect). Restarting on it would abort an
+                # in-flight connection/measurement for nothing. Deferred
+                # debounce/backoff retries pass no registration and always
+                # proceed, preserving the invariant that every relevant
+                # event leads to a restart attempt.
                 source = getattr(getattr(registration, "scanner", None), "source", None)
                 _LOGGER.debug(
-                    "Scanner registration changed (source: %s) but the "
-                    "Bluetooth topology this entry uses is unchanged; "
-                    "skipping scale client restart",
+                    "Scanner registration changed (source: %s) but this "
+                    "entry only scans via native adapters and ESPHome "
+                    "proxies; skipping scale client restart",
                     source or "unknown",
                 )
                 return
@@ -2257,11 +2172,6 @@ class ScaleDataUpdateCoordinator:
                     _LOGGER.warning("Error stopping client: %s", ex)
                 finally:
                     self._client = None
-
-            # No running client - release the topology snapshot (and the
-            # ESPHomeClientData references it holds alive)
-            self._last_topology = None
-            self._pending_topology = None
 
             # Clear all pending measurement notifications (they won't persist across reload)
             await self._clear_all_pending_notifications()
