@@ -1810,6 +1810,10 @@ class ScaleDataUpdateCoordinator:
                 library_logger = self._configure_library_logger()
 
                 client_cls = SCALE_CLASSES.get(self._scale_model)
+                # Per-model constructor extras, added only on the branch
+                # where the model actually resolved to its own client — the
+                # fallback below lands on a class that accepts none of them.
+                model_kwargs: dict[str, Any] = {}
                 if client_cls is None:
                     # Unknown or legacy model value: fall back to the ESF-551 client.
                     _LOGGER.warning(
@@ -1817,6 +1821,14 @@ class ScaleDataUpdateCoordinator:
                         self._scale_model,
                     )
                     client_cls = SCALE_CLASSES[ScaleModel.ESF551]
+                elif self._scale_model == ScaleModel.ESF24:
+                    # Drain the ESF-24's store of offline measurements
+                    # (weigh-ins taken while HA was down) once per session.
+                    # Delivery deletes each record from the scale, so this
+                    # clears the store rather than importing the readings —
+                    # it also hides them from the VeSync app. Matches the
+                    # renpho integration's QN branch.
+                    model_kwargs["clear_stored_measurements"] = True
                 _LOGGER.debug(
                     "Initializing new %s client (scale_model=%s)",
                     client_cls.__name__,
@@ -1834,6 +1846,7 @@ class ScaleDataUpdateCoordinator:
                 # library then builds its own fallback scanner with it);
                 # `_get_bluetooth_scanner` downgrades it from PASSIVE to
                 # ACTIVE when the native adapter can't do passive scanning.
+                # `model_kwargs` carries the per-model extras resolved above.
                 self._client = client_cls(
                     self.address,
                     self.update_listeners,
@@ -1841,6 +1854,7 @@ class ScaleDataUpdateCoordinator:
                     scanning_mode=self._fallback_scanning_mode,
                     bleak_scanner_backend=scanner,
                     logger=library_logger,
+                    **model_kwargs,
                 )
 
                 await asyncio.wait_for(self._client.async_start(), timeout=30.0)

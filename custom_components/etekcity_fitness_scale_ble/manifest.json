@@ -50,7 +50,7 @@
     "etekcity_esf551_ble"
   ],
   "requirements": [
-    "etekcity_esf551_ble==0.8.1"
+    "etekcity_esf551_ble==0.8.2"
   ],
-  "version": "0.7.2b3"
+  "version": "0.7.3"
 }
