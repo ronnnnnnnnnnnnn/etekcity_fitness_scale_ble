@@ -1,2 +1,2 @@
-etekcity_esf551_ble==0.8.1
+etekcity_esf551_ble==0.8.3
 ruff==0.6.2
