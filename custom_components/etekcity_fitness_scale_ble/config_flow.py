@@ -13,6 +13,7 @@ import voluptuous as vol
 from voluptuous.schema_builder import Marker
 
 from etekcity_esf551_ble import (
+    CAPABILITIES,
     ETEKCITY_MANUFACTURER_ID,
     detect_model,
     is_etekcity_frame,
@@ -56,6 +57,7 @@ from .const import (
     CONF_USER_ID,
     CONF_USER_NAME,
     CONF_USER_PROFILES,
+    CONF_USE_ALTERNATIVE_ALGORITHM,
     CONF_WEIGHT_HISTORY,
     BODY_METRICS_MODELS,
     DOMAIN,
@@ -166,10 +168,11 @@ def _manual_picker_tier(discovery_info: BluetoothServiceInfo) -> int | None:
 # Offered when the library cannot classify a device: the user picks which
 # supported protocol to try. Keys are the persisted ScaleModel values.
 _MODEL_CHOICES: dict[str, str] = {
-    ScaleModel.ESF551.value: "ESF-551 — standard scale (recommended first try)",
-    ScaleModel.EFSA591S.value: "EFS-A591S / Apex HR — encrypted connection, heart rate",
-    ScaleModel.ESF24.value: "ESF-24 — weight-only scale",
-    ScaleModel.FIT8S.value: "FIT-8S — broadcast-only scale (no connection)",
+    ScaleModel.ESF551.value: "ESF-551",
+    ScaleModel.EFSA591S.value: "EFS-A591S / Apex HR",
+    ScaleModel.EFSC651.value: "EFS-C651",
+    ScaleModel.ESF24.value: "ESF-24",
+    ScaleModel.FIT8S.value: "FIT-8S",
 }
 
 
@@ -201,6 +204,28 @@ def _picker_label(title_text: str, discovery_info: BluetoothServiceInfo) -> str:
     if payload is not None and is_etekcity_frame(payload, discovery_info.address):
         return f"{title_text} [Etekcity device — unknown model]"
     return f"{title_text} [unknown device]"
+
+
+def _display_unit_note(scale_model: ScaleModel | str | None) -> str:
+    """Return the display-unit field's help text for a scale model.
+
+    Capability-derived rather than a hardcoded model list: models that
+    accept a display-unit write get the regular description; broadcast-only
+    models (display_unit_settable False, e.g. FIT-8S) get a warning that
+    the choice only affects Home Assistant. Unknown persisted models fall
+    back to the regular text. ScaleModel is a str enum, so raw persisted
+    strings look up correctly in CAPABILITIES.
+    """
+    caps = CAPABILITIES.get(scale_model)
+    if caps is not None and not caps.display_unit_settable:
+        return (
+            "For this scale model the selected unit affects the Home"
+            " Assistant display only - it is not sent to the scale."
+        )
+    return (
+        "The selected unit is sent to the scale and used for this"
+        " scale's weight display in Home Assistant."
+    )
 
 
 def _get_mobile_notify_services(hass) -> dict[str, str]:
@@ -476,19 +501,10 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
             return await self.async_step_add_first_user()
 
-        # Show confirmation form (same for both models; esf24_note adds context when ESF-24)
+        # Show confirmation form. The display-unit help text under the field
+        # is capability-derived (see _display_unit_note).
         description_placeholders = dict(self.context["title_placeholders"])
-        if scale_model == ScaleModel.ESF24:
-            description_placeholders["esf24_note"] = (
-                " (ESF-24 detected - experimental support, weight only)"
-            )
-        elif scale_model == ScaleModel.FIT8S:
-            description_placeholders["esf24_note"] = (
-                " (FIT-8S detected)\n\nNote: for FIT-8S the selected display unit"
-                " affects the Home Assistant display only, it is not sent to the scale."
-            )
-        else:
-            description_placeholders["esf24_note"] = ""
+        description_placeholders["display_unit_note"] = _display_unit_note(scale_model)
 
         schema: dict[Any, Any] = {}
         schema[vol.Required(CONF_SCALE_DISPLAY_UNIT, default=UnitOfMass.KILOGRAMS)] = (
@@ -692,6 +708,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
                 CONF_ATHLETE: user_input.get(CONF_ATHLETE, False),
+                CONF_USE_ALTERNATIVE_ALGORITHM: user_input.get(
+                    CONF_USE_ALTERNATIVE_ALGORITHM, False
+                ),
                 CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -756,6 +775,7 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         schema[vol.Required(CONF_ATHLETE, default=False)] = cv.boolean
+        schema[vol.Required(CONF_USE_ALTERNATIVE_ALGORITHM, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_first_user_body_metrics",
@@ -1121,6 +1141,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
                 CONF_ATHLETE: user_input.get(CONF_ATHLETE, False),
+                CONF_USE_ALTERNATIVE_ALGORITHM: user_input.get(
+                    CONF_USE_ALTERNATIVE_ALGORITHM, False
+                ),
                 CONF_WEIGHT_HISTORY: [],
                 CONF_CREATED_AT: datetime.now().isoformat(),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
@@ -1187,6 +1210,7 @@ class ScaleOptionsFlow(OptionsFlow):
             )
 
         schema[vol.Required(CONF_ATHLETE, default=False)] = cv.boolean
+        schema[vol.Required(CONF_USE_ALTERNATIVE_ALGORITHM, default=False)] = cv.boolean
 
         return self.async_show_form(
             step_id="add_user_body_metrics",
@@ -1472,6 +1496,9 @@ class ScaleOptionsFlow(OptionsFlow):
                 CONF_BIRTHDATE: user_input[CONF_BIRTHDATE],
                 CONF_HEIGHT: height_cm,
                 CONF_ATHLETE: user_input.get(CONF_ATHLETE, False),
+                CONF_USE_ALTERNATIVE_ALGORITHM: user_input.get(
+                    CONF_USE_ALTERNATIVE_ALGORITHM, False
+                ),
                 CONF_UPDATED_AT: datetime.now().isoformat(),
             }
 
@@ -1553,6 +1580,12 @@ class ScaleOptionsFlow(OptionsFlow):
             vol.Required(
                 CONF_ATHLETE,
                 default=bool(current_user.get(CONF_ATHLETE, False)),
+            )
+        ] = cv.boolean
+        schema[
+            vol.Required(
+                CONF_USE_ALTERNATIVE_ALGORITHM,
+                default=bool(current_user.get(CONF_USE_ALTERNATIVE_ALGORITHM, False)),
             )
         ] = cv.boolean
 
@@ -1654,19 +1687,9 @@ class ScaleOptionsFlow(OptionsFlow):
         display_unit = self.config_entry.data.get(
             CONF_SCALE_DISPLAY_UNIT, UnitOfMass.KILOGRAMS
         )
-        if scale_model == ScaleModel.ESF24:
-            description_placeholders = {
-                "esf24_note": " (ESF-24 - experimental support, weight only)"
-            }
-        elif scale_model == ScaleModel.FIT8S:
-            description_placeholders = {
-                "esf24_note": (
-                    " (FIT-8S)\n\nNote: for FIT-8S the selected display unit"
-                    " affects the Home Assistant display only, it is not sent to the scale."
-                )
-            }
-        else:
-            description_placeholders = {"esf24_note": ""}
+        description_placeholders = {
+            "display_unit_note": _display_unit_note(scale_model)
+        }
 
         return self.async_show_form(
             step_id="scale_settings",

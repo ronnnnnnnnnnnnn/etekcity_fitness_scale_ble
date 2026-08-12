@@ -61,6 +61,7 @@ from .const import (
     CONF_MOBILE_NOTIFY_SERVICES,
     CONF_USER_ID,
     CONF_USER_NAME,
+    CONF_USE_ALTERNATIVE_ALGORITHM,
     CONF_WEIGHT_HISTORY,
     DOMAIN,
     HISTORY_RETENTION_DAYS,
@@ -68,6 +69,7 @@ from .const import (
     PASSIVE_SCAN_ISSUE_ID,
     ScaleModel,
     parse_notify_service,
+    resolve_body_metrics_class,
 )
 from .person_detector import PersonDetector
 
@@ -1826,8 +1828,7 @@ class ScaleDataUpdateCoordinator:
                     # (weigh-ins taken while HA was down) once per session.
                     # Delivery deletes each record from the scale, so this
                     # clears the store rather than importing the readings —
-                    # it also hides them from the VeSync app. Matches the
-                    # renpho integration's QN branch.
+                    # it also hides them from the VeSync app.
                     model_kwargs["clear_stored_measurements"] = True
                 _LOGGER.debug(
                     "Initializing new %s client (scale_model=%s)",
@@ -2641,7 +2642,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user (newest measurement scenario)
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble import BodyMetrics, Sex, calc_age
+                from etekcity_esf551_ble import Sex, calc_age
                 from datetime import date as dt_date
 
                 weight_kg = data.measurements.get("weight")
@@ -2682,7 +2683,15 @@ class ScaleDataUpdateCoordinator:
                                 else Sex.Male
                             )
                             age = calc_age(birthdate)
-                            body_metrics = BodyMetrics(
+                            metrics_cls = resolve_body_metrics_class(
+                                self._scale_model,
+                                bool(
+                                    user_profile.get(
+                                        CONF_USE_ALTERNATIVE_ALGORITHM, False
+                                    )
+                                ),
+                            )
+                            body_metrics = metrics_cls(
                                 weight_kg,
                                 height_m,
                                 age,
@@ -3181,7 +3190,7 @@ class ScaleDataUpdateCoordinator:
         # Calculate body metrics if enabled for this user
         if user_profile.get("body_metrics_enabled", False):
             try:
-                from etekcity_esf551_ble import BodyMetrics, Sex, calc_age
+                from etekcity_esf551_ble import Sex, calc_age
                 from datetime import date as dt_date
 
                 weight_kg = measurements.get("weight")
@@ -3222,7 +3231,15 @@ class ScaleDataUpdateCoordinator:
                                 else Sex.Male
                             )
                             age = calc_age(birthdate)
-                            body_metrics = BodyMetrics(
+                            metrics_cls = resolve_body_metrics_class(
+                                self._scale_model,
+                                bool(
+                                    user_profile.get(
+                                        CONF_USE_ALTERNATIVE_ALGORITHM, False
+                                    )
+                                ),
+                            )
+                            body_metrics = metrics_cls(
                                 weight_kg,
                                 height_m,
                                 age,

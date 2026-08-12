@@ -60,9 +60,12 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "Configure device options{esf24_note}",
+        "description": "Configure device options",
         "data": {
           "scale_display_unit": "Scale display unit"
+        },
+        "data_description": {
+          "scale_display_unit": "{display_unit_note}"
         }
       },
       "choose_model": {
@@ -95,10 +98,12 @@
           "birthdate": "Date of birth",
           "feet": "Height (feet)",
           "inches": "Height (inches)",
-          "athlete": "Athlete mode"
+          "athlete": "Athlete mode",
+          "use_alternative_algorithm": "Use alternative body composition algorithm"
         },
         "data_description": {
-          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass."
+          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass.",
+          "use_alternative_algorithm": "By default the values match the VeSync app for this scale model. Try this if they don't match what you expect. Changing it causes a one-time jump in this user's body composition history."
         }
       },
       "body_metrics": {
@@ -162,10 +167,12 @@
           "birthdate": "Date of birth",
           "feet": "Height (feet)",
           "inches": "Height (inches)",
-          "athlete": "Athlete mode"
+          "athlete": "Athlete mode",
+          "use_alternative_algorithm": "Use alternative body composition algorithm"
         },
         "data_description": {
-          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass."
+          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass.",
+          "use_alternative_algorithm": "By default the values match the VeSync app for this scale model. Try this if they don't match what you expect. Changing it causes a one-time jump in this user's body composition history."
         }
       },
       "edit_user": {
@@ -198,10 +205,12 @@
           "birthdate": "Date of birth",
           "feet": "Height (feet)",
           "inches": "Height (inches)",
-          "athlete": "Athlete mode"
+          "athlete": "Athlete mode",
+          "use_alternative_algorithm": "Use alternative body composition algorithm"
         },
         "data_description": {
-          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass."
+          "athlete": "Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass.",
+          "use_alternative_algorithm": "By default the values match the VeSync app for this scale model. Try this if they don't match what you expect. Changing it causes a one-time jump in this user's body composition history."
         }
       },
       "remove_user": {
@@ -213,9 +222,12 @@
       },
       "scale_settings": {
         "title": "Scale Settings",
-        "description": "Configure scale display unit{esf24_note}",
+        "description": "Configure scale display unit",
         "data": {
           "scale_display_unit": "Scale display unit"
+        },
+        "data_description": {
+          "scale_display_unit": "{display_unit_note}"
         }
       },
       "advanced_settings": {

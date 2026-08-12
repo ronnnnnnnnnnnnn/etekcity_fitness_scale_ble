@@ -1,6 +1,12 @@
 """Constants for the etekcity_fitness_scale_ble integration."""
 
-from etekcity_esf551_ble import CAPABILITIES, ScaleModel as ScaleModel
+from etekcity_esf551_ble import (
+    CAPABILITIES,
+    BaseBodyMetrics,
+    BodyMetrics,
+    BodyMetricsV2,
+    ScaleModel as ScaleModel,
+)
 
 DOMAIN = "etekcity_fitness_scale_ble"
 
@@ -42,6 +48,34 @@ HEART_RATE_MODELS = frozenset(
     model for model, caps in CAPABILITIES.items() if caps.has_heart_rate
 )
 
+# Body-composition calculator to use per model. The EFS-C651 derives its
+# metrics with a different algorithm (BodyMetricsV2); every other supported
+# model uses BodyMetrics. Lookups fall back to BodyMetrics.
+BODY_METRICS_CLASSES: dict[ScaleModel, type[BaseBodyMetrics]] = {
+    ScaleModel.ESF551: BodyMetrics,
+    ScaleModel.ESF24: BodyMetrics,
+    ScaleModel.FIT8S: BodyMetrics,
+    ScaleModel.EFSA591S: BodyMetrics,
+    ScaleModel.EFSC651: BodyMetricsV2,
+}
+
+
+def resolve_body_metrics_class(
+    model: ScaleModel | None, use_alternative: bool
+) -> type[BaseBodyMetrics]:
+    """Return the body-composition calculator for a model.
+
+    The per-user "alternative algorithm" flag is relative: it selects
+    whichever of the two calculators the model does NOT default to, so the
+    per-model defaults in BODY_METRICS_CLASSES stay the single source of
+    truth and no absolute V1/V2 naming leaks into stored profiles or UI.
+    """
+    default_cls = BODY_METRICS_CLASSES.get(model, BodyMetrics)
+    if not use_alternative:
+        return default_cls
+    return BodyMetricsV2 if default_cls is BodyMetrics else BodyMetrics
+
+
 # Multi-user constants (v2+)
 CONF_SCALE_DISPLAY_UNIT = "scale_display_unit"
 # Last display unit propagated to the weight entities' registry options; lets
@@ -57,6 +91,9 @@ CONF_PERSON_ENTITY = "person_entity"
 CONF_MOBILE_NOTIFY_SERVICES = "mobile_notify_services"
 CONF_BODY_METRICS_ENABLED = "body_metrics_enabled"
 CONF_ATHLETE = "athlete"
+# Per-user body-composition algorithm override; absent/False = per-model
+# default (see resolve_body_metrics_class).
+CONF_USE_ALTERNATIVE_ALGORITHM = "use_alternative_algorithm"
 CONF_CREATED_AT = "created_at"
 CONF_UPDATED_AT = "updated_at"
 CONF_WEIGHT_HISTORY = "weight_history"

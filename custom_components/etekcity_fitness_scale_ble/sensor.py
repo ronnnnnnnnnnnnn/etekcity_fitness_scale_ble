@@ -208,7 +208,7 @@ async def async_setup_entry(
     # Get user profiles from config entry
     user_profiles = entry.data.get(CONF_USER_PROFILES, [])
 
-    # Get scale model (ESF-24: weight only; ESF-551/FIT-8S: weight + impedance + body metrics)
+    # Get scale model (gates the impedance/body-metrics and heart-rate sensors below)
     scale_model = entry.data.get(CONF_SCALE_MODEL, ScaleModel.ESF551)
 
     # Handle migration from v1 (old single-user format)
@@ -261,7 +261,6 @@ async def async_setup_entry(
             user_name = user_profile.get(CONF_USER_NAME, "User")
             body_metrics_enabled = user_profile.get(CONF_BODY_METRICS_ENABLED, False)
 
-            # ESF-24: weight only. ESF-551/FIT-8S: weight + impedance + optional body metrics
             user_entities = [
                 ScaleUserWeightSensor(
                     entry.title,
