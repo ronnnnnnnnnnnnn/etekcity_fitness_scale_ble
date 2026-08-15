@@ -173,6 +173,7 @@ _MODEL_CHOICES: dict[str, str] = {
     ScaleModel.EFSC651.value: "EFS-C651",
     ScaleModel.ESF24.value: "ESF-24",
     ScaleModel.FIT8S.value: "FIT-8S",
+    ScaleModel.ESF37.value: "ESF-37 — weight only, experimental",
 }
 
 
