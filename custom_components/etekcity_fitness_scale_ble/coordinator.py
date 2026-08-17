@@ -2509,7 +2509,21 @@ class ScaleDataUpdateCoordinator:
 
         # Create timestamp ONCE when measurement is received
         # This ensures consistent timestamps across all code paths (auto-assign, detection, pending)
-        measurement_timestamp = datetime.now().isoformat()
+        # data.timestamp is set for a history-batch record (e.g. ESF-37
+        # flushing its stored backlog on connect) to when that reading
+        # actually happened, as a timezone-aware UTC ISO string -- convert
+        # to local-naive to match every other timestamp in this pipeline
+        # rather than mixing formats. None (the live-reading case, same as
+        # before this field existed) just uses now().
+        if data.timestamp:
+            measurement_timestamp = (
+                datetime.fromisoformat(data.timestamp)
+                .astimezone()
+                .replace(tzinfo=None)
+                .isoformat()
+            )
+        else:
+            measurement_timestamp = datetime.now().isoformat()
 
         # Smart detection logic: Single user auto-assign (skip detection)
         if len(self._user_profiles) == 1:
