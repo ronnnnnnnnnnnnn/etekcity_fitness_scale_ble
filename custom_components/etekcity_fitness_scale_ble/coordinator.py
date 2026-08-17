@@ -2339,7 +2339,8 @@ class ScaleDataUpdateCoordinator:
             data: The scale data containing all measurements.
 
         Returns:
-            Dictionary with only raw measurements (weight, impedance, heart_rate).
+            Dictionary with only raw measurements (weight, impedance,
+            heart_rate, body_fat_percentage).
         """
         raw_measurements = {}
         if "weight" in data.measurements:
@@ -2348,6 +2349,14 @@ class ScaleDataUpdateCoordinator:
             raw_measurements["impedance"] = data.measurements["impedance"]
         if "heart_rate" in data.measurements:
             raw_measurements["heart_rate"] = data.measurements["heart_rate"]
+        if "body_fat_percentage" in data.measurements:
+            # ESF-37 only: the scale computes this on-device and reports it
+            # directly, unlike every other model's body_fat_percentage
+            # (computed later from impedance + profile, so deliberately
+            # excluded here same as the rest of that cascade).
+            raw_measurements["body_fat_percentage"] = data.measurements[
+                "body_fat_percentage"
+            ]
         return raw_measurements
 
     def _validate_measurement(
