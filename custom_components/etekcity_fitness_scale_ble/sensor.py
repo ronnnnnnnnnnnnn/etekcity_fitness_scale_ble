@@ -307,7 +307,7 @@ async def async_setup_entry(
             # metrics). Treated like heart rate above: a direct measurement,
             # not a computed one, so it's added independently of
             # body_metrics_enabled.
-            if scale_model is ScaleModel.ESF37:
+            if scale_model == ScaleModel.ESF37:
                 user_entities.append(
                     ScaleUserSensor(
                         entry.title,
