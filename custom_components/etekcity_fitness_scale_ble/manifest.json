@@ -55,7 +55,7 @@
     "etekcity_esf551_ble"
   ],
   "requirements": [
-    "etekcity_esf551_ble==0.8.3"
+    "etekcity_esf551_ble @ git+https://github.com/kolonuk/etekcity_esf551_ble.git@esf37-support"
   ],
   "version": "0.8.0"
 }
