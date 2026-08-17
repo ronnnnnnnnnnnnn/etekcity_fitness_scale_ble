@@ -49,18 +49,20 @@ from .coordinator import ScaleData, ScaleDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
+BODY_FAT_PERCENTAGE_DESCRIPTION = SensorEntityDescription(
+    key="body_fat_percentage",
+    icon="mdi:human-handsdown",
+    native_unit_of_measurement=PERCENTAGE,
+    state_class=SensorStateClass.MEASUREMENT,
+)
+
 SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="body_mass_index",
         icon="mdi:human-male-height-variant",
         state_class=SensorStateClass.MEASUREMENT,
     ),
-    SensorEntityDescription(
-        key="body_fat_percentage",
-        icon="mdi:human-handsdown",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
+    BODY_FAT_PERCENTAGE_DESCRIPTION,
     SensorEntityDescription(
         key="fat_free_weight",
         icon="mdi:run",
@@ -293,6 +295,25 @@ async def async_setup_entry(
                             native_unit_of_measurement="bpm",
                             state_class=SensorStateClass.MEASUREMENT,
                         ),
+                        user_id=user_id,
+                        user_name=user_name,
+                    ),
+                )
+
+            # The ESF-37 computes body fat % on-device and reports only that
+            # one figure directly - no impedance, so it can't run the
+            # BodyMetrics/BodyMetricsV2 cascade the other BODY_METRICS_MODELS
+            # scales use (that needs impedance + profile to derive all ten
+            # metrics). Treated like heart rate above: a direct measurement,
+            # not a computed one, so it's added independently of
+            # body_metrics_enabled.
+            if scale_model == ScaleModel.ESF37:
+                user_entities.append(
+                    ScaleUserSensor(
+                        entry.title,
+                        address,
+                        coordinator,
+                        BODY_FAT_PERCENTAGE_DESCRIPTION,
                         user_id=user_id,
                         user_name=user_name,
                     ),

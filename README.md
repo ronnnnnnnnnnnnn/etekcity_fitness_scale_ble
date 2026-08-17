@@ -6,7 +6,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Features
 
-- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight, impedance, body composition; experimental), EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental) and EFS-C651 (weight, impedance, body composition; experimental)
+- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight, impedance, body composition; experimental), EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental), EFS-C651 (weight, impedance, body composition; experimental) and ESF-37 (weight + body fat %; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
@@ -192,6 +192,7 @@ This integration supports the following Etekcity scale models:
 | [ESF-24 Smart Fitness Scale](https://us.vesync.com/product-detail/etekcity-esf24-smart-fitness-scale-335) | Experimental | Weight, impedance, body composition, display unit |
 | [EFS-A591S-KUS (Apex HR)](https://etekcity.com/collections/fitness-scales/products/hr-smart-fitness-scale) | Experimental | Weight, impedance, body composition, heart rate, display unit |
 | [EFS-C651 Smart Fitness Scale](https://etekcity.com/collections/fitness-scales/products/cobra-dark-blue) | Experimental | Weight, impedance, body composition (own algorithm), display unit |
+| ESF-37 Smart Fitness Scale | Experimental | Weight (scale sends both kg and lb over BLE) + body fat % (scale computes this on-device; no other body composition is available, see below) |
 
 Other Etekcity BLE fitness scale models may work but have not been tested. If you'd like to help diagnose protocol compatibility for an unsupported model, see [Diagnosing Protocol Compatibility](#diagnosing-protocol-compatibility).
 

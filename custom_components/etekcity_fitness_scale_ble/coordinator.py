@@ -2339,7 +2339,8 @@ class ScaleDataUpdateCoordinator:
             data: The scale data containing all measurements.
 
         Returns:
-            Dictionary with only raw measurements (weight, impedance, heart_rate).
+            Dictionary with only raw measurements (weight, impedance,
+            heart_rate, body_fat_percentage).
         """
         raw_measurements = {}
         if "weight" in data.measurements:
@@ -2348,6 +2349,14 @@ class ScaleDataUpdateCoordinator:
             raw_measurements["impedance"] = data.measurements["impedance"]
         if "heart_rate" in data.measurements:
             raw_measurements["heart_rate"] = data.measurements["heart_rate"]
+        if "body_fat_percentage" in data.measurements:
+            # ESF-37 only: the scale computes this on-device and reports it
+            # directly, unlike every other model's body_fat_percentage
+            # (computed later from impedance + profile, so deliberately
+            # excluded here same as the rest of that cascade).
+            raw_measurements["body_fat_percentage"] = data.measurements[
+                "body_fat_percentage"
+            ]
         return raw_measurements
 
     def _validate_measurement(
@@ -2500,7 +2509,21 @@ class ScaleDataUpdateCoordinator:
 
         # Create timestamp ONCE when measurement is received
         # This ensures consistent timestamps across all code paths (auto-assign, detection, pending)
-        measurement_timestamp = datetime.now().isoformat()
+        # data.timestamp is set for a history-batch record (e.g. ESF-37
+        # flushing its stored backlog on connect) to when that reading
+        # actually happened, as a timezone-aware UTC ISO string -- convert
+        # to local-naive to match every other timestamp in this pipeline
+        # rather than mixing formats. None (the live-reading case, same as
+        # before this field existed) just uses now().
+        if data.timestamp:
+            measurement_timestamp = (
+                datetime.fromisoformat(data.timestamp)
+                .astimezone()
+                .replace(tzinfo=None)
+                .isoformat()
+            )
+        else:
+            measurement_timestamp = datetime.now().isoformat()
 
         # Smart detection logic: Single user auto-assign (skip detection)
         if len(self._user_profiles) == 1:
