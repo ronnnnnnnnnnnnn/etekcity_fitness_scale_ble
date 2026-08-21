@@ -936,7 +936,6 @@ class ScaleDataUpdateCoordinator:
         # Config entry reference for persistence
         self._config_entry_id: str | None = None
 
-
     @property
     def scale_model(self) -> ScaleModel | None:
         """The configured scale model (None for legacy entries).
