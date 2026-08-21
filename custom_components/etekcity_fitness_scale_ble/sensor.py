@@ -425,6 +425,7 @@ class ScaleSensor(RestoreSensor):
             connections={(CONNECTION_BLUETOOTH, address)},
             name=name,
             manufacturer="Etekcity",
+            model=str(coordinator.scale_model) if coordinator.scale_model else None,
         )
         self._coordinator = coordinator
 
@@ -904,6 +905,7 @@ class ScaleUserDirectorySensor(SensorEntity):
             connections={(CONNECTION_BLUETOOTH, address)},
             name=name,
             manufacturer="Etekcity",
+            model=str(coordinator.scale_model) if coordinator.scale_model else None,
         )
         self._coordinator = coordinator
 
@@ -959,6 +961,7 @@ class ScalePendingMeasurementsSensor(SensorEntity):
             connections={(CONNECTION_BLUETOOTH, address)},
             name=name,
             manufacturer="Etekcity",
+            model=str(coordinator.scale_model) if coordinator.scale_model else None,
         )
         self._coordinator = coordinator
         self._remove_listener = None

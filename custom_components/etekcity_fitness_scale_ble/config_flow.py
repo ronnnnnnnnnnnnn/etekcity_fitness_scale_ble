@@ -172,6 +172,8 @@ _MODEL_CHOICES: dict[str, str] = {
     ScaleModel.EFSA591S.value: "EFS-A591S / Apex HR",
     ScaleModel.EFSC651.value: "EFS-C651",
     ScaleModel.ESF24.value: "ESF-24",
+    ScaleModel.ESF17.value: "ESF-17",
+    ScaleModel.ESF18.value: "ESF-18",
     ScaleModel.FIT8S.value: "FIT-8S",
 }
 
@@ -195,11 +197,23 @@ def detect_scale_model(discovery_info: BluetoothServiceInfo) -> ScaleModel | Non
     return model
 
 
+def _annotate_title(title_text: str, model: ScaleModel | None) -> str:
+    """Append the detected model to a device title, e.g. for a discovery
+    card or confirmation screen. Several models share an advertised name
+    (the whole QN family advertises "QN-Scale1"), so without this a user
+    can't tell which one Home Assistant actually found. Unchanged when the
+    model isn't known.
+    """
+    if model is not None:
+        return f"{title_text} [{model.value}]"
+    return title_text
+
+
 def _picker_label(title_text: str, discovery_info: BluetoothServiceInfo) -> str:
     """Annotate a manual-picker entry with what we know about the device."""
     model = detect_scale_model(discovery_info)
     if model is not None:
-        return f"{title_text} [{model.value}]"
+        return _annotate_title(title_text, model)
     payload = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
     if payload is not None and is_etekcity_frame(payload, discovery_info.address):
         return f"{title_text} [Etekcity device — unknown model]"
@@ -501,9 +515,13 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
             return await self.async_step_add_first_user()
 
-        # Show confirmation form. The display-unit help text under the field
-        # is capability-derived (see _display_unit_note).
+        # Show confirmation form. "model" feeds this step's own title
+        # ("{model} detected" — see strings.json), not the flow-wide header
+        # (title_placeholders["name"]), which is reused across every later
+        # step and stays short on purpose. The display-unit help text under
+        # the field is capability-derived (see _display_unit_note).
         description_placeholders = dict(self.context["title_placeholders"])
+        description_placeholders["model"] = scale_model.value
         description_placeholders["display_unit_note"] = _display_unit_note(scale_model)
 
         schema: dict[Any, Any] = {}
@@ -828,7 +846,9 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             # Detect scale model for manual discovery
             scale_model = detect_scale_model(discovery.discovery_info)
             self.context["scale_model"] = scale_model
-            self.context["title_placeholders"] = {"name": discovery.title}
+            self.context["title_placeholders"] = {
+                "name": _annotate_title(discovery.title, scale_model)
+            }
 
             # Store display unit and proceed to add first user (same flow for ESF24 and ESF551)
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]

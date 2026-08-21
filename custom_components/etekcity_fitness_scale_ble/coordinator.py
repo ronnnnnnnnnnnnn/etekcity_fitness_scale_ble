@@ -936,6 +936,15 @@ class ScaleDataUpdateCoordinator:
         # Config entry reference for persistence
         self._config_entry_id: str | None = None
 
+
+    @property
+    def scale_model(self) -> ScaleModel | None:
+        """The configured scale model (None for legacy entries).
+
+        Entities fill the device registry's model field from it.
+        """
+        return self._scale_model
+
     def set_display_unit(self, unit: WeightUnit) -> None:
         """Set the display unit for the scale.
 
@@ -1823,8 +1832,12 @@ class ScaleDataUpdateCoordinator:
                         self._scale_model,
                     )
                     client_cls = SCALE_CLASSES[ScaleModel.ESF551]
-                elif self._scale_model == ScaleModel.ESF24:
-                    # Drain the ESF-24's store of offline measurements
+                elif self._scale_model in (
+                    ScaleModel.ESF24,
+                    ScaleModel.ESF17,
+                    ScaleModel.ESF18,
+                ):
+                    # Drain the scale's store of offline measurements
                     # (weigh-ins taken while HA was down) once per session.
                     # Delivery deletes each record from the scale, so this
                     # clears the store rather than importing the readings —

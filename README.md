@@ -6,7 +6,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 ## Features
 
-- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight, impedance, body composition; experimental), EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental) and EFS-C651 (weight, impedance, body composition; experimental)
+- **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight, impedance, body composition; experimental), ESF-17 and ESF-18 (same protocol as the ESF-24; experimental), EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental) and EFS-C651 (weight, impedance, body composition; experimental)
 - Automatic discovery of Etekcity BLE fitness scales
 - Intelligent multi-user support:
     - Automatically detects which person is using the scale based on their weight history.
@@ -33,7 +33,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 ## Notes
 
 - "Athlete Mode" is available as a per-user option on the body composition profile, applying the same athlete-tuned body fat calculation as the VeSync app's Athlete Mode toggle.
-- **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24, EFS-A591S and EFS-C651, the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
+- **FIT-8S** is advertisement-based: the display unit you select affects the Home Assistant display only and is *not* sent to the scale. For ESF-551, ESF-24, ESF-17, ESF-18, EFS-A591S and EFS-C651, the selected unit is pushed to the scale's screen; Home Assistant cannot change what a FIT-8S shows (use the button on the scale for that), so for FIT-8S the two are independent.
 - This integration uses the [etekcity_esf551_ble](https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble) Python library (v0.8.3+) for scale communication.
 
 ## Installation
@@ -190,6 +190,7 @@ This integration supports the following Etekcity scale models:
 | [ESF-551 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf551) | Fully supported | Weight, impedance, body composition, display unit |
 | [FIT-8S Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-fit-8s) | Experimental | Weight, impedance, body composition |
 | [ESF-24 Smart Fitness Scale](https://us.vesync.com/product-detail/etekcity-esf24-smart-fitness-scale-335) | Experimental | Weight, impedance, body composition, display unit |
+| [ESF-17/18 Smart Fitness Scale](https://etekcity.com/products/smart-fitness-scale-esf18) | Experimental | Weight, impedance, body composition, display unit |
 | [EFS-A591S-KUS (Apex HR)](https://etekcity.com/collections/fitness-scales/products/hr-smart-fitness-scale) | Experimental | Weight, impedance, body composition, heart rate, display unit |
 | [EFS-C651 Smart Fitness Scale](https://etekcity.com/collections/fitness-scales/products/cobra-dark-blue) | Experimental | Weight, impedance, body composition (own algorithm), display unit |
 
@@ -200,13 +201,34 @@ Other Etekcity BLE fitness scale models may work but have not been tested. If yo
 - Make sure your scale is within range of your Home Assistant device, or within range of at least one ESPHome device configured as a Bluetooth proxy in Home Assistant.
 - If you encounter any issues, please check the Home Assistant logs for more information.
 
+### Scale is set up but no measurements appear
+
+If the integration recognized and set up your scale but weigh-ins never
+show up (on first install or after working previously):
+
+1. **Check Settings → System → Repairs** — a repair card may already
+   explain the cause and its fix.
+2. **Check the log for `org.bluez.Error.InProgress` errors** or a
+   warning starting with *"Passive scanning is not available on this
+   adapter"* — if present, see
+   [Bluetooth issues with a native Linux adapter](#bluetooth-issues-with-a-native-linux-adapter-bluez)
+   below.
+3. **Check range** — the scale must be within range of the Home Assistant
+   machine's adapter or of an ESPHome Bluetooth proxy (with active
+   connections enabled).
+
 ### Bluetooth issues with a native Linux adapter (BlueZ)
 
 If setup occasionally fails with `org.bluez.Error.InProgress`, or
-measurements stop arriving on a machine using its own Bluetooth adapter,
-one possible cause seen on some systems (often around Home
-Assistant startup) is the integration's scanner conflicting with Home
-Assistant's shared Bluetooth scanner.
+measurements stop arriving (or never arrive) on a machine using its own
+Bluetooth adapter, one possible cause seen on some systems (often around
+Home Assistant startup) is the integration's scanner conflicting with
+Home Assistant's shared Bluetooth scanner. The tell-tale log line is:
+
+> Passive scanning is not available on this adapter (BlueZ
+> AdvertisementMonitor API not exposed), so the scale library will use
+> its own active scanner. This can fail with org.bluez.Error.InProgress
+> while Home Assistant's shared scanner is starting…
 
 **The durable fix for that cause — enable BlueZ passive scanning.**
 Whenever the integration uses the machine's own adapter, it prefers

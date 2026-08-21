@@ -60,7 +60,8 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "Configure device options",
+        "title": "Configure scale",
+        "description": "**Model:** {model}",
         "data": {
           "scale_display_unit": "Scale display unit"
         },

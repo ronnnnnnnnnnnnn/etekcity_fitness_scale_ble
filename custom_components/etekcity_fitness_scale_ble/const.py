@@ -54,6 +54,8 @@ HEART_RATE_MODELS = frozenset(
 BODY_METRICS_CLASSES: dict[ScaleModel, type[BaseBodyMetrics]] = {
     ScaleModel.ESF551: BodyMetrics,
     ScaleModel.ESF24: BodyMetrics,
+    ScaleModel.ESF17: BodyMetrics,
+    ScaleModel.ESF18: BodyMetrics,
     ScaleModel.FIT8S: BodyMetrics,
     ScaleModel.EFSA591S: BodyMetrics,
     ScaleModel.EFSC651: BodyMetricsV2,
