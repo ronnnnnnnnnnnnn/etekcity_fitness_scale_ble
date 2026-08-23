@@ -4,6 +4,16 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/ronnnnnnn)
 
+> **Health & safety note:** Body-composition scales measure by passing a low
+> electrical current through the body. This project does not support the
+> manufacturers' zero-current, pregnancy or baby modes, and a mode
+> enabled in the manufacturer's app is not guaranteed to be in effect while the
+> scale is used through this integration. Use may be unsuitable for anyone who might be
+> pregnant or who has a pacemaker or other implanted medical device.
+> Body-composition values are bioimpedance estimates, not clinical
+> measurements, and this integration is not a medical device; do not use its output
+> for medical decisions.
+
 ## Features
 
 - **Supported models:** ESF-551 (full features: weight, impedance, body composition), FIT-8S (weight, impedance, body composition; experimental), ESF-24 (weight, impedance, body composition; experimental), ESF-17 and ESF-18 (same protocol as the ESF-24; experimental), EFS-A591S-KUS / Apex HR (weight, impedance, body composition, heart rate; experimental) and EFS-C651 (weight, impedance, body composition; experimental)
@@ -84,7 +94,7 @@ When adding or editing user profiles (**Settings → Devices & Services → Etek
   - When enabled, you'll receive a mobile notification with tap-to-assign buttons directly on your phone
   - Each candidate user gets a personalized notification with "This is me" and "Not me" buttons
 
-- **Enable body composition metrics:** Calculate additional health metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth and height.
+- **Enable body composition metrics:** Calculate additional body-composition metrics (BMI, body fat %, etc.) based on impedance measurements. Requires sex, date of birth and height.
 
 - **Athlete mode (optional):** Applies the athlete-tuned body fat calculation, matching the VeSync app's Athlete Mode. Recommended for users who train regularly and have above-average muscle mass. Every metric derived from body fat (fat-free weight, muscle, water, BMR, etc.) follows the adjusted value.
 
@@ -331,4 +341,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 This integration is not official. It is not endorsed by, directly affiliated with, maintained, authorized or sponsored by Etekcity, VeSync Co., Ltd. or any of their affiliates or subsidiaries. All product and company names are the registered trademarks of their original owners. The use of any trade name or trademark is for identification and reference purposes only and does not imply any association with the trademark holder of their product brand.
 
-Use this integration at your own risk.
+This software is provided as is, without warranty of any kind.
