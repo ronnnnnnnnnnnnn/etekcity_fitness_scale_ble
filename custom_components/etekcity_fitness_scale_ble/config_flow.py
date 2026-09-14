@@ -15,8 +15,10 @@ from voluptuous.schema_builder import Marker
 from etekcity_esf551_ble import (
     CAPABILITIES,
     ETEKCITY_MANUFACTURER_ID,
+    QN_MANUFACTURER_ID,
     detect_model,
     is_etekcity_frame,
+    is_qn_frame,
 )
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfo,
@@ -158,6 +160,12 @@ def _manual_picker_tier(discovery_info: BluetoothServiceInfo) -> int | None:
     payload = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
     if payload is not None and is_etekcity_frame(payload, discovery_info.address):
         return 2
+    # The QN platform (ESF-24/17/18) gets the same treatment: a frame whose
+    # MAC echo validates is a QN device for certain, and an unregistered
+    # code there is what a new ESF-24 hardware revision looks like.
+    payload = discovery_info.manufacturer_data.get(QN_MANUFACTURER_ID)
+    if payload is not None and is_qn_frame(payload, discovery_info.address):
+        return 2
     if _KNOWN_NON_SCALE_MFR_IDS & discovery_info.manufacturer_data.keys():
         return None
     if _KNOWN_NON_SCALE_SERVICE_UUIDS & set(discovery_info.service_uuids or []):
@@ -217,6 +225,9 @@ def _picker_label(title_text: str, discovery_info: BluetoothServiceInfo) -> str:
     payload = discovery_info.manufacturer_data.get(ETEKCITY_MANUFACTURER_ID)
     if payload is not None and is_etekcity_frame(payload, discovery_info.address):
         return f"{title_text} [Etekcity device — unknown model]"
+    payload = discovery_info.manufacturer_data.get(QN_MANUFACTURER_ID)
+    if payload is not None and is_qn_frame(payload, discovery_info.address):
+        return f"{title_text} [QN-platform device — unknown model]"
     return f"{title_text} [unknown device]"
 
 

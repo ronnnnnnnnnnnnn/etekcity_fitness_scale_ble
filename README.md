@@ -78,7 +78,7 @@ This custom integration allows you to connect your Etekcity Bluetooth Low Energy
         - Enter your height
         - Optionally enable Athlete Mode
 
-Devices that aren't recognized as a known model are never auto-discovered — they only appear when adding a device manually. In the manual device picker they show up labeled "[unknown device]" or "[Etekcity device — unknown model]". You can still configure them by choosing which supported scale protocol to try. If none of them work, please [open an issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues) with debug logs: they contain the device's model identifier when it broadcasts one, which is exactly what's needed to add support.
+Devices that aren't recognized as a known model are never auto-discovered — they only appear when adding a device manually. In the manual device picker they show up labeled "[unknown device]", "[Etekcity device — unknown model]" or "[QN-platform device — unknown model]". You can still configure them by choosing which supported scale protocol to try. If none of them work, please [open an issue](https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble/issues) with debug logs: they contain the device's model identifier when it broadcasts one, which is exactly what's needed to add support.
 
 ### User Profile Configuration Options
 

@@ -25,6 +25,14 @@
       "local_name": "04:AC:44:*"
     },
     {
+      "connectable": true,
+      "local_name": "QN-Scale"
+    },
+    {
+      "connectable": true,
+      "local_name": "D8:0B:CB:*"
+    },
+    {
       "connectable": false,
       "manufacturer_id": 1744,
       "local_name": "A9:89:5D:*"
@@ -55,7 +63,7 @@
     "etekcity_esf551_ble"
   ],
   "requirements": [
-    "etekcity_esf551_ble==0.8.4"
+    "etekcity_esf551_ble==0.8.7"
   ],
-  "version": "0.8.1"
+  "version": "0.8.2"
 }

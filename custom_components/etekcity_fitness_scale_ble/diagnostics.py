@@ -13,6 +13,12 @@ Redacted fields:
   - ``birthdate`` / ``height`` / ``sex`` — user PII
 
 What we keep verbatim:
+  - The last advertisement HA saw from the scale (name, manufacturer data,
+    service UUIDs, RSSI, source): it is what identifies a model or hardware
+    revision, and asking reporters to dig it out of the advertisement
+    monitor by hand cost a round trip on integration issue #44. The QN
+    manufacturer payload echoes the scale's MAC, which the entry title
+    already carries.
   - User IDs (the empty string is a structural marker for the v1 legacy
     default user, not PII; UUIDs are opaque)
   - Timestamps, weight, impedance, body composition values — useful for
@@ -23,6 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.components import bluetooth
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -52,6 +59,25 @@ _TO_REDACT = {
 def _redact_user_profiles(profiles: list[dict]) -> list[dict]:
     """Redact PII fields inside each user profile."""
     return [async_redact_data(p, _TO_REDACT) for p in profiles]
+
+
+def _last_advertisement(hass: HomeAssistant, address: str) -> dict[str, Any] | None:
+    """The last advertisement HA saw from the scale, JSON-safe, or None."""
+    info = bluetooth.async_last_service_info(hass, address, connectable=False)
+    if info is None:
+        return None
+    return {
+        "name": info.name,
+        "rssi": info.rssi,
+        "manufacturer_data": {
+            str(company): data.hex() for company, data in info.manufacturer_data.items()
+        },
+        "service_data": {uuid: data.hex() for uuid, data in info.service_data.items()},
+        "service_uuids": list(info.service_uuids),
+        "source": info.source,
+        "connectable": info.connectable,
+        "time": info.time,
+    }
 
 
 async def async_get_config_entry_diagnostics(
@@ -107,6 +133,7 @@ async def async_get_config_entry_diagnostics(
 
     client = getattr(coordinator, "_client", None)
     diag["coordinator"] = {
+        "last_advertisement": _last_advertisement(hass, coordinator.address),
         "device_name": coordinator._device_name,
         "scale_model": str(coordinator._scale_model),
         "display_unit": coordinator.get_display_unit().name,
