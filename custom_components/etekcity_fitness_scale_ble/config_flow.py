@@ -177,6 +177,7 @@ def _manual_picker_tier(discovery_info: BluetoothServiceInfo) -> int | None:
 # supported protocol to try. Keys are the persisted ScaleModel values.
 _MODEL_CHOICES: dict[str, str] = {
     ScaleModel.ESF551.value: "ESF-551",
+    ScaleModel.ESF551JP.value: "ESF-551 (Japan)",
     ScaleModel.EFSA591S.value: "EFS-A591S / Apex HR",
     ScaleModel.EFSC651.value: "EFS-C651",
     ScaleModel.ESF24.value: "ESF-24",

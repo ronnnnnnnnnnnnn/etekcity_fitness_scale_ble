@@ -53,6 +53,7 @@ HEART_RATE_MODELS = frozenset(
 # model uses BodyMetrics. Lookups fall back to BodyMetrics.
 BODY_METRICS_CLASSES: dict[ScaleModel, type[BaseBodyMetrics]] = {
     ScaleModel.ESF551: BodyMetrics,
+    ScaleModel.ESF551JP: BodyMetrics,
     ScaleModel.ESF24: BodyMetrics,
     ScaleModel.ESF17: BodyMetrics,
     ScaleModel.ESF18: BodyMetrics,
