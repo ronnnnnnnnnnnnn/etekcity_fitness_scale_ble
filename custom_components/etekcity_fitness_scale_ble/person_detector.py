@@ -103,14 +103,14 @@ class PersonDetector:
             Closest-first user_ids. A single ID when the closest user is
             plausible and clearly better than the rest; the users surviving
             competitive pruning when it is plausible but not clearly better;
-            every user with history when even the closest is implausibly far.
+            an empty list when even the closest is implausibly far, leaving
+            the outcome to users without history and the caller's fallback.
         """
         # Closest first by raw distance, matching the in-tolerance ordering and
         # the pruning margin. Normalized distance (diff / tolerance) is used
         # below to judge whether the closest user is plausible at all.
         ranked = sorted(ranked_users, key=lambda item: item[0])
         best_diff, best_tolerance, best_id = ranked[0]
-        all_ids = [user_id for _, _, user_id in ranked]
 
         if (
             best_diff > best_tolerance * FALLBACK_MAX_TOLERANCE_MULTIPLE
@@ -118,13 +118,12 @@ class PersonDetector:
         ):
             _LOGGER.debug(
                 "No user within tolerance and closest (%s, diff: %.2f kg, tolerance: "
-                "%.2f kg) is too far to trust; keeping all users with history: %s",
+                "%.2f kg) is too far to trust",
                 best_id,
                 best_diff,
                 best_tolerance,
-                all_ids,
             )
-            return all_ids
+            return []
 
         # Same competitive-pruning semantics as in-tolerance matches.
         kept = [
@@ -158,8 +157,8 @@ class PersonDetector:
            within FALLBACK_MAX_TOLERANCE_MULTIPLE x their tolerance (and
            FALLBACK_MAX_DISTANCE_KG) and everyone else is more than
            CANDIDATE_PRUNE_MARGIN_KG further away. Otherwise the users that
-           survive the same pruning are returned, or all users with history
-           when even the closest is implausibly far (e.g. a guest).
+           survive the same pruning are returned, or none when even the
+           closest is implausibly far (e.g. a guest).
         3. Users without weight history (new users)
 
         All candidates are filtered by location (excludes users marked "not_home").
@@ -169,7 +168,7 @@ class PersonDetector:
             user_profiles: List of user profile dictionaries with user_id.
 
         Returns:
-            List of candidate user IDs. Empty only if no profile has a user_id.
+            List of candidate user IDs. Empty list if no candidates found.
         """
         if not user_profiles:
             _LOGGER.debug("No user profiles configured, cannot detect person")
@@ -224,6 +223,17 @@ class PersonDetector:
                     tolerance_kg,
                 )
 
+        # Apply location filtering before pruning so a user who is away
+        # cannot prune a slightly farther user who is home. Each list is
+        # filtered on its own, and the filter keeps the list as-is if it would
+        # empty it, so an away user who matches still beats no match at all.
+        home_matches = set(
+            self._filter_candidates_by_location(
+                [user_id for _, user_id in weight_matches], user_profiles
+            )
+        )
+        weight_matches = [m for m in weight_matches if m[1] in home_matches]
+
         # Sort weight matches by closeness and apply competitive pruning:
         # drop matches that are clearly worse than the best one.
         weight_matches.sort(key=lambda item: item[0])
@@ -247,7 +257,14 @@ class PersonDetector:
 
         elif ranked_users:
             # Nobody within tolerance: rank by distance instead of giving up.
-            kept_matches = self._rank_out_of_tolerance(weight_kg, ranked_users)
+            home_ranked = set(
+                self._filter_candidates_by_location(
+                    [user_id for _, _, user_id in ranked_users], user_profiles
+                )
+            )
+            kept_matches = self._rank_out_of_tolerance(
+                weight_kg, [r for r in ranked_users if r[2] in home_ranked]
+            )
 
         # Combine weight matches (closest first) and users without history
         all_candidates = kept_matches + users_without_history

@@ -2532,9 +2532,8 @@ class ScaleDataUpdateCoordinator:
         # Location filtering is already applied by the detector
         candidates = self._person_detector.detect_person(weight_kg, self._user_profiles)
 
-        # Last-resort fallback: the detector already handles out-of-tolerance
-        # weights (distance-aware), so it only returns nothing when there is
-        # nothing to go on. Include all users to prevent data loss.
+        # Fallback: If no candidates found, include all users
+        # This prevents data loss when weight is far from every user
         if not candidates:
             _LOGGER.debug(
                 "No candidates detected for weight %.2f kg, falling back to all users",

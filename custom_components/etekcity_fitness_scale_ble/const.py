@@ -155,8 +155,8 @@ CANDIDATE_PRUNE_MARGIN_KG = 3.0
 # ~1 kg from a user's last weigh-in can still miss a 1.5 kg band), users with
 # history are ranked by distance instead of all becoming candidates. The
 # closest user is only trusted if the reading is within BOTH bounds below;
-# beyond them (e.g. a guest) nothing is a credible match and every user with
-# history stays a candidate.
+# beyond them (e.g. a guest) nobody with history is a credible match, and the
+# existing handling applies (users without history, then all users).
 # - 2x tolerance: tolerance is ~2.5 std devs, so 2x covers ordinary day-to-day
 #   swings (water weight, clothing) plus reference drift without trusting
 #   readings that are plainly someone else.
