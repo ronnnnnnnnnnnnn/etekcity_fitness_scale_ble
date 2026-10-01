@@ -2532,8 +2532,9 @@ class ScaleDataUpdateCoordinator:
         # Location filtering is already applied by the detector
         candidates = self._person_detector.detect_person(weight_kg, self._user_profiles)
 
-        # Fallback: If no candidates found, include all users
-        # This prevents data loss when weight is out of tolerance for all users
+        # Last-resort fallback: the detector already handles out-of-tolerance
+        # weights (distance-aware), so it only returns nothing when there is
+        # nothing to go on. Include all users to prevent data loss.
         if not candidates:
             _LOGGER.debug(
                 "No candidates detected for weight %.2f kg, falling back to all users",
@@ -3022,7 +3023,8 @@ class ScaleDataUpdateCoordinator:
         # - Other users: No usable history (new users or stale data 90+ days)
         #
         # Candidates come from PersonDetector which includes:
-        # 1. Users matching within adaptive tolerance
+        # 1. Users matching within adaptive tolerance, or (if nobody is) the
+        #    closest users by distance
         # 2. Users without usable history (new users or stale history)
         #
         # If PersonDetector returns empty, coordinator fallback adds all users.

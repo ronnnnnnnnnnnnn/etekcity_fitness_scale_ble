@@ -7,7 +7,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from .adaptive_tolerance import get_tolerance_for_user
-from .const import CANDIDATE_PRUNE_MARGIN_KG, CONF_PERSON_ENTITY
+from .const import (
+    CANDIDATE_PRUNE_MARGIN_KG,
+    CONF_PERSON_ENTITY,
+    FALLBACK_MAX_DISTANCE_KG,
+    FALLBACK_MAX_TOLERANCE_MULTIPLE,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -84,6 +89,60 @@ class PersonDetector:
 
         return filtered_candidates
 
+    def _rank_out_of_tolerance(
+        self, weight_kg: float, ranked_users: list[tuple[float, float, str]]
+    ) -> list[str]:
+        """Pick fallback candidates when no user is within tolerance.
+
+        Args:
+            weight_kg: Current weight measurement in kilograms.
+            ranked_users: (raw diff kg, tolerance kg, user_id) for every user
+                with history.
+
+        Returns:
+            Closest-first user_ids. A single ID when the closest user is
+            plausible and clearly better than the rest; the users surviving
+            competitive pruning when it is plausible but not clearly better;
+            every user with history when even the closest is implausibly far.
+        """
+        # Closest first by raw distance, matching the in-tolerance ordering and
+        # the pruning margin. Normalized distance (diff / tolerance) is used
+        # below to judge whether the closest user is plausible at all.
+        ranked = sorted(ranked_users, key=lambda item: item[0])
+        best_diff, best_tolerance, best_id = ranked[0]
+        all_ids = [user_id for _, _, user_id in ranked]
+
+        if (
+            best_diff > best_tolerance * FALLBACK_MAX_TOLERANCE_MULTIPLE
+            or best_diff > FALLBACK_MAX_DISTANCE_KG
+        ):
+            _LOGGER.debug(
+                "No user within tolerance and closest (%s, diff: %.2f kg, tolerance: "
+                "%.2f kg) is too far to trust; keeping all users with history: %s",
+                best_id,
+                best_diff,
+                best_tolerance,
+                all_ids,
+            )
+            return all_ids
+
+        # Same competitive-pruning semantics as in-tolerance matches.
+        kept = [
+            user_id
+            for diff, _, user_id in ranked
+            if diff <= best_diff + CANDIDATE_PRUNE_MARGIN_KG
+        ]
+        _LOGGER.debug(
+            "No user within tolerance for %.2f kg; distance fallback kept %s "
+            "(closest: %s, diff: %.2f kg, tolerance: %.2f kg)",
+            weight_kg,
+            kept,
+            best_id,
+            best_diff,
+            best_tolerance,
+        )
+        return kept
+
     def detect_person(self, weight_kg: float, user_profiles: list[dict]) -> list[str]:
         """Detect which person is using the scale based on weight.
 
@@ -94,7 +153,14 @@ class PersonDetector:
            matches whose distance is more than CANDIDATE_PRUNE_MARGIN_KG
            worse than the best match, so a clearly-better match wins
            outright instead of raising an ambiguity.
-        2. Users without weight history (new users)
+        2. If nobody is within tolerance, a distance-aware fallback over users
+           with history: the closest user wins outright when the reading is
+           within FALLBACK_MAX_TOLERANCE_MULTIPLE x their tolerance (and
+           FALLBACK_MAX_DISTANCE_KG) and everyone else is more than
+           CANDIDATE_PRUNE_MARGIN_KG further away. Otherwise the users that
+           survive the same pruning are returned, or all users with history
+           when even the closest is implausibly far (e.g. a guest).
+        3. Users without weight history (new users)
 
         All candidates are filtered by location (excludes users marked "not_home").
 
@@ -103,7 +169,7 @@ class PersonDetector:
             user_profiles: List of user profile dictionaries with user_id.
 
         Returns:
-            List of candidate user IDs. Empty list if no candidates found.
+            List of candidate user IDs. Empty only if no profile has a user_id.
         """
         if not user_profiles:
             _LOGGER.debug("No user profiles configured, cannot detect person")
@@ -111,6 +177,8 @@ class PersonDetector:
 
         current_time = datetime.now()
         weight_matches = []
+        # (diff, tolerance, user_id) for every user with history, in or out of tolerance
+        ranked_users: list[tuple[float, float, str]] = []
         users_without_history = []
 
         for user_profile in user_profiles:
@@ -135,6 +203,7 @@ class PersonDetector:
 
             # Check if current weight is within adaptive tolerance
             weight_diff = abs(weight_kg - ref_weight)
+            ranked_users.append((weight_diff, tolerance_kg, user_id))
             if weight_diff <= tolerance_kg:
                 _LOGGER.debug(
                     "User %s matches (ref: %.2f kg, current: %.2f kg, diff: %.2f kg, tolerance: %.2f kg)",
@@ -175,6 +244,10 @@ class PersonDetector:
                     CANDIDATE_PRUNE_MARGIN_KG,
                     pruned_matches,
                 )
+
+        elif ranked_users:
+            # Nobody within tolerance: rank by distance instead of giving up.
+            kept_matches = self._rank_out_of_tolerance(weight_kg, ranked_users)
 
         # Combine weight matches (closest first) and users without history
         all_candidates = kept_matches + users_without_history
