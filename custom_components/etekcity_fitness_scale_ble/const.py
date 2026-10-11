@@ -150,6 +150,21 @@ RECENCY_SCALING_MAX = 2.5  # Maximum tolerance multiplier for stale data
 # so a clearly-better match auto-assigns instead of raising an ambiguity.
 CANDIDATE_PRUNE_MARGIN_KG = 3.0
 
+# Person detection - distance-aware fallback. When nobody is within tolerance
+# (tolerance is centered on a time-decayed reference weight, so a reading only
+# ~1 kg from a user's last weigh-in can still miss a 1.5 kg band), users with
+# history are ranked by distance instead of all becoming candidates. The
+# closest user is only trusted if the reading is within BOTH bounds below;
+# beyond them (e.g. a guest) nobody with history is a credible match, and the
+# existing handling applies (users without history, then all users).
+# - 2x tolerance: tolerance is ~2.5 std devs, so 2x covers ordinary day-to-day
+#   swings (water weight, clothing) plus reference drift without trusting
+#   readings that are plainly someone else.
+# - 6 kg absolute cap: tolerance can balloon for stale users (up to ~19 kg),
+#   so the multiple alone would trust almost anything for them.
+FALLBACK_MAX_TOLERANCE_MULTIPLE = 2.0
+FALLBACK_MAX_DISTANCE_KG = 6.0
+
 
 def get_sensor_unique_id(device_name: str, user_id: str, sensor_key: str) -> str:
     """Construct unique_id for a sensor entity.

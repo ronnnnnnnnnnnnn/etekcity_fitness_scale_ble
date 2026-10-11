@@ -123,7 +123,7 @@ When a new measurement is received, the integration attempts to automatically as
 1. **Weight History:** The measurement is compared against each user's weight history.
 2. **Location:** If a user profile is linked to a Home Assistant `person` entity, the integration checks if that person is `home`. Users who are `not_home` are excluded from automatic assignment.
 
-If a single user is a clear match, the measurement is assigned automatically.
+If a single user is a clear match, the measurement is assigned automatically. If the weight falls just outside everyone's usual range, the closest user is still assigned automatically as long as they are plausibly the right person and clearly closer than the others; you are only asked when it is genuinely unclear.
 
 ### Ambiguous Measurements
 
