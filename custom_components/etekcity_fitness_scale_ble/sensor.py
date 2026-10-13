@@ -713,8 +713,14 @@ class ScaleUserSensor(ScaleSensor):
         # to avoid duplicate listener registration
         await RestoreSensor.async_added_to_hass(self)
 
-        # Restore data
-        self._attr_available = await self.async_restore_data()
+        # Restore only while the weight history still backs a value. HA's
+        # restore cache is keyed by entity_id and outlives the entity, and user
+        # IDs are name slugs: a user removed and re-added under the same name
+        # (or a reinstalled integration) would otherwise come back showing a
+        # weight that no service can remove (#47). History pruning always keeps
+        # the newest measurement, so empty history means no measurement at all.
+        if self._coordinator.get_user_history(self._user_id):
+            self._attr_available = await self.async_restore_data()
 
         # Register user-specific callback using direct callback registry
         self.async_on_remove(
