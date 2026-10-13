@@ -1075,6 +1075,25 @@ class ScaleDataUpdateCoordinator:
         """
         self._config_entry_id = config_entry_id
 
+    @callback
+    def async_get_device_entry(self) -> dr.DeviceEntry | None:
+        """Return this config entry's scale device from the device registry.
+
+        HA 2026.8 made device connections unique per config entry only and
+        deprecated DeviceRegistry.async_get_device (breaks in 2027.8.0), so
+        the per-entry lookup is used when the core has it. Older cores
+        (hacs.json allows 2026.1) only have the global lookup.
+        """
+        device_reg = dr.async_get(self._hass)
+        connection = (CONNECTION_BLUETOOTH, self.address)
+        if not hasattr(device_reg, "async_get_device_by_connection"):
+            return device_reg.async_get_device(connections={connection})
+        if self._config_entry_id is None:
+            return None
+        return device_reg.async_get_device_by_connection(
+            connection, self._config_entry_id
+        )
+
     def _normalize_measurement(self, measurement: dict) -> dict:
         """Normalize measurement dict to have consistent field order.
 
@@ -2997,10 +3016,7 @@ class ScaleDataUpdateCoordinator:
         """
         # Send mobile notifications first (async operation)
         # Resolve device info for notification context
-        device_reg = dr.async_get(self._hass)
-        device_entry = device_reg.async_get_device(
-            connections={(CONNECTION_BLUETOOTH, self.address)}
-        )
+        device_entry = self.async_get_device_entry()
         device_id = device_entry.id if device_entry else "DEVICE_ID"
         device_name = device_entry.name if device_entry else self._device_name
 

@@ -483,6 +483,31 @@ class ScaleSensor(RestoreSensor):
             return converted
         return value
 
+    def _sync_device_versions(
+        self, hw_version: str | None, sw_version: str | None
+    ) -> None:
+        """Push changed hardware/software versions to the scale's device entry.
+
+        An empty or missing version keeps the one already in the registry.
+        """
+        device_entry = self._coordinator.async_get_device_entry()
+        if not device_entry or (
+            device_entry.hw_version == hw_version
+            and device_entry.sw_version == sw_version
+        ):
+            return
+        if hw_version is None or hw_version == "":
+            hw_version = device_entry.hw_version
+        if sw_version is None or sw_version == "":
+            sw_version = device_entry.sw_version
+
+        dr.async_get(self.hass).async_update_device(
+            device_entry.id, hw_version=hw_version, sw_version=sw_version
+        )
+        self._attr_device_info.update(
+            {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
+        )
+
     async def async_get_last_sensor_data(self) -> SensorExtraStoredData | None:
         """Restore Sensor Extra Stored Data."""
         if (restored_last_extra_data := await self.async_get_last_extra_data()) is None:
@@ -575,17 +600,6 @@ class ScaleWeightSensorExtraStoredData(SensorExtraStoredData):
 class ScaleWeightSensor(ScaleSensor):
     """Representation of a weight sensor for the Etekcity scale (v1 compatibility)."""
 
-    def __init__(
-        self,
-        name: str,
-        address: str,
-        coordinator: ScaleDataUpdateCoordinator,
-        entity_description: SensorEntityDescription,
-        user_id: str | None = None,
-    ) -> None:
-        self._id = address
-        super().__init__(name, address, coordinator, entity_description, user_id)
-
     async def async_restore_data(self) -> bool:
         """Restore last state from storage."""
         if last_state := await self.async_get_last_sensor_data():
@@ -598,29 +612,7 @@ class ScaleWeightSensor(ScaleSensor):
             # converts the value to whatever display unit is selected.
             self._attr_native_value = self._restored_native_value(last_state)
 
-            address = self._id
-            device_registry = dr.async_get(self.hass)
-            device_entry = device_registry.async_get_device(
-                connections={(CONNECTION_BLUETOOTH, address)}
-            )
-            if device_entry and (
-                device_entry.hw_version != last_state.hw_version
-                or device_entry.sw_version != last_state.sw_version
-            ):
-                hw_version = last_state.hw_version
-                if hw_version is None or hw_version == "":
-                    hw_version = device_entry.hw_version
-
-                sw_version = last_state.sw_version
-                if sw_version is None or sw_version == "":
-                    sw_version = device_entry.sw_version
-
-                device_registry.async_update_device(
-                    device_entry.id, hw_version=hw_version, sw_version=sw_version
-                )
-                self._attr_device_info.update(
-                    {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
-                )
+            self._sync_device_versions(last_state.hw_version, last_state.sw_version)
             return True
         return False
 
@@ -630,29 +622,7 @@ class ScaleWeightSensor(ScaleSensor):
     ) -> None:
         """Handle updated data from the scale."""
 
-        address = self._id
-        device_registry = dr.async_get(self.hass)
-        device_entry = device_registry.async_get_device(
-            connections={(CONNECTION_BLUETOOTH, address)}
-        )
-        if device_entry and (
-            device_entry.hw_version != data.hw_version
-            or device_entry.sw_version != data.sw_version
-        ):
-            hw_version = data.hw_version
-            if hw_version is None or hw_version == "":
-                hw_version = device_entry.hw_version
-
-            sw_version = data.sw_version
-            if sw_version is None or sw_version == "":
-                sw_version = device_entry.sw_version
-
-            device_registry.async_update_device(
-                device_entry.id, hw_version=hw_version, sw_version=sw_version
-            )
-            self._attr_device_info.update(
-                {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
-            )
+        self._sync_device_versions(data.hw_version, data.sw_version)
 
         super().handle_update(data)
 
@@ -756,21 +726,6 @@ class ScaleUserSensor(ScaleSensor):
 class ScaleUserWeightSensor(ScaleUserSensor):
     """Weight sensor for user-specific measurements (v2 multi-user)."""
 
-    def __init__(
-        self,
-        name: str,
-        address: str,
-        coordinator: ScaleDataUpdateCoordinator,
-        entity_description: SensorEntityDescription,
-        user_id: str,
-        user_name: str,
-    ) -> None:
-        """Initialize user-specific weight sensor."""
-        self._id = address
-        super().__init__(
-            name, address, coordinator, entity_description, user_id, user_name
-        )
-
     async def async_restore_data(self) -> bool:
         """Restore last state from storage."""
         if last_state := await self.async_get_last_sensor_data():
@@ -783,29 +738,7 @@ class ScaleUserWeightSensor(ScaleUserSensor):
             # converts the value to whatever display unit is selected.
             self._attr_native_value = self._restored_native_value(last_state)
 
-            address = self._id
-            device_registry = dr.async_get(self.hass)
-            device_entry = device_registry.async_get_device(
-                connections={(CONNECTION_BLUETOOTH, address)}
-            )
-            if device_entry and (
-                device_entry.hw_version != last_state.hw_version
-                or device_entry.sw_version != last_state.sw_version
-            ):
-                hw_version = last_state.hw_version
-                if hw_version is None or hw_version == "":
-                    hw_version = device_entry.hw_version
-
-                sw_version = last_state.sw_version
-                if sw_version is None or sw_version == "":
-                    sw_version = device_entry.sw_version
-
-                device_registry.async_update_device(
-                    device_entry.id, hw_version=hw_version, sw_version=sw_version
-                )
-                self._attr_device_info.update(
-                    {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
-                )
+            self._sync_device_versions(last_state.hw_version, last_state.sw_version)
             return True
         return False
 
@@ -815,29 +748,7 @@ class ScaleUserWeightSensor(ScaleUserSensor):
     ) -> None:
         """Handle updated data from the scale."""
 
-        address = self._id
-        device_registry = dr.async_get(self.hass)
-        device_entry = device_registry.async_get_device(
-            connections={(CONNECTION_BLUETOOTH, address)}
-        )
-        if device_entry and (
-            device_entry.hw_version != data.hw_version
-            or device_entry.sw_version != data.sw_version
-        ):
-            hw_version = data.hw_version
-            if hw_version is None or hw_version == "":
-                hw_version = device_entry.hw_version
-
-            sw_version = data.sw_version
-            if sw_version is None or sw_version == "":
-                sw_version = device_entry.sw_version
-
-            device_registry.async_update_device(
-                device_entry.id, hw_version=hw_version, sw_version=sw_version
-            )
-            self._attr_device_info.update(
-                {HW_VERSION_KEY: hw_version, SW_VERSION_KEY: sw_version}
-            )
+        self._sync_device_versions(data.hw_version, data.sw_version)
 
         super().handle_update(data)
 
