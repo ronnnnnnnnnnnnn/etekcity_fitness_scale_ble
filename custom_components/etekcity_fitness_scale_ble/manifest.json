@@ -33,6 +33,38 @@
       "local_name": "D8:0B:CB:*"
     },
     {
+      "connectable": true,
+      "manufacturer_id": 65535,
+      "manufacturer_data_start": [
+        1,
+        38
+      ]
+    },
+    {
+      "connectable": true,
+      "manufacturer_id": 65535,
+      "manufacturer_data_start": [
+        3,
+        178
+      ]
+    },
+    {
+      "connectable": true,
+      "manufacturer_id": 65535,
+      "manufacturer_data_start": [
+        0,
+        211
+      ]
+    },
+    {
+      "connectable": true,
+      "manufacturer_id": 65535,
+      "manufacturer_data_start": [
+        2,
+        159
+      ]
+    },
+    {
       "connectable": false,
       "manufacturer_id": 1744,
       "local_name": "A9:89:5D:*"
@@ -63,7 +95,7 @@
     "etekcity_esf551_ble"
   ],
   "requirements": [
-    "etekcity_esf551_ble==0.8.8"
+    "etekcity_esf551_ble==0.8.9"
   ],
-  "version": "0.8.3"
+  "version": "0.8.4"
 }
