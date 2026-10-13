@@ -97,5 +97,5 @@
   "requirements": [
     "etekcity_esf551_ble==0.8.9"
   ],
-  "version": "0.8.4"
+  "version": "0.8.5"
 }
